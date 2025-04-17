@@ -170,6 +170,7 @@ function updateStatistics(confirmedMatches, previousSelections) {
 
   // Log the calculation for debugging
   console.log(`Calculating total valid combinations for ${totalMatches} matches:`);
+  console.log(`- Available favorites: ${favorites.length}, Available underdogs: ${underdogs.length}`);
   console.log(`- Target favorites: ${favoritesToSelect} (${(favoritesToSelect/totalMatches*100).toFixed(1)}%)`);
   console.log(`- Target underdogs: ${underdogsToSelect} (${(underdogsToSelect/totalMatches*100).toFixed(1)}%)`);
   console.log(`- Total valid combinations: C(${totalMatches},${favoritesToSelect}) = ${totalPossibleCombinations}`);
@@ -413,7 +414,7 @@ async function startBetVariations() {
       action: 'startBetVariations',
       matches: matches,
       stake: stake
-    }, (response) => {
+    }, () => {
       if (chrome.runtime.lastError) {
         console.error('Error sending start variations message:', chrome.runtime.lastError);
         alert('Error starting bet variations. Please try again.');
@@ -445,7 +446,7 @@ async function stopBetVariations() {
     // Notify background script to stop bet variations
     chrome.runtime.sendMessage({
       action: 'stopBetVariations'
-    }, (response) => {
+    }, () => {
       if (chrome.runtime.lastError) {
         console.error('Error sending stop variations message:', chrome.runtime.lastError);
         alert('Error stopping bet variations. Please try again.');

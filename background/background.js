@@ -117,6 +117,9 @@ async function startBetVariations(matches, stake) {
     await chrome.storage.local.set({ previousSelections: [] });
     previousSelections = [];
 
+    // Initialize a counter for failed attempts
+    let failedAttempts = 0;
+
     // Set bet variation active
     await chrome.storage.local.set({ betVariationActive: true });
 
@@ -141,6 +144,13 @@ async function startBetVariations(matches, stake) {
 
         // Calculate total possible combinations
         const totalPossibleCombinations = calculateTotalPossibleCombinations(currentMatches);
+
+        // Log detailed information about the current state
+        const nonLiveMatches = currentMatches.filter(match => !match.isLive);
+        const favorites = nonLiveMatches.filter(match => match.isFavorite);
+        const underdogs = nonLiveMatches.filter(match => !match.isFavorite);
+        console.log(`Current state: ${nonLiveMatches.length} non-live matches (${favorites.length} favorites, ${underdogs.length} underdogs)`);
+        console.log(`Combinations tried: ${currentPreviousSelections.length} out of ${totalPossibleCombinations} possible`);
 
         // Check if we've tried all possible combinations
         if (currentPreviousSelections.length >= totalPossibleCombinations) {
@@ -167,16 +177,32 @@ async function startBetVariations(matches, stake) {
         const success = await placeBet(currentMatches, stake, variationType, variationIndex);
 
         if (success) {
+          // Reset failed attempts counter on success
+          failedAttempts = 0;
+
           // Notify any open pages about the update
           chrome.runtime.sendMessage({
             action: 'betVariationUpdated',
             variationIndex: variationIndex
           });
+        } else {
+          // Increment failed attempts counter
+          failedAttempts++;
+          console.log(`Failed attempt #${failedAttempts} to generate a unique combination`);
+
+          // If we've had too many failed attempts in a row, it might mean we're stuck
+          if (failedAttempts >= 10) {
+            console.log(`Had ${failedAttempts} failed attempts in a row. This might indicate we've tried all practical combinations.`);
+            console.log(`Current combinations tried: ${currentPreviousSelections.length} out of ${totalPossibleCombinations} theoretical combinations.`);
+
+            // Reset the counter to avoid stopping too early
+            failedAttempts = 0;
+          }
         }
       } catch (error) {
         console.error('Error in bet variation interval:', error);
       }
-    }, 15000); // Try a new random selection every 15 seconds
+    }, 5000); // Try a new random selection every 5 seconds
   } catch (error) {
     console.error('Error starting bet variations:', error);
   }
@@ -267,17 +293,23 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
     // Select players from each match
     const selectedMatches = [];
 
-    // For each match, randomly decide whether to use the user's selection or the opposite player
-    // This ensures we generate all possible combinations over time
+    // For each match, decide whether to use the user's selection or the opposite player
+    // based on the current previousSelections count to ensure we generate all combinations
+    // This is a more systematic approach than random selection
+    const currentCount = previousSelections.length;
+
+    // Use the binary representation of currentCount to determine which player to select for each match
+    // This ensures we try all possible combinations in a systematic way
     shuffledMatchIds.forEach((matchId, index) => {
       const matchData = matchesMap[matchId];
-      const useUserSelection = Math.random() < 0.5; // 50% chance to use user's selection
+      // Use bit at position index of currentCount to decide which player to select
+      const useUserSelection = ((currentCount >> index) & 1) === 0;
 
       // For the first favoritesToSelect matches, we want to select favorites
       if (index < favoritesToSelect) {
         // We need a favorite player for this position
         if (matchData.userSelected.isFavorite && useUserSelection) {
-          // User selected a favorite and we randomly chose to use it
+          // User selected a favorite and we chose to use it based on the bit pattern
           selectedMatches.push(matchData.userSelected);
         } else if (matchData.opposite.isFavorite) {
           // Opposite player is a favorite, use it
@@ -290,7 +322,7 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
         // For the remaining matches, we want to select underdogs
         // We need an underdog player for this position
         if (!matchData.userSelected.isFavorite && useUserSelection) {
-          // User selected an underdog and we randomly chose to use it
+          // User selected an underdog and we chose to use it based on the bit pattern
           selectedMatches.push(matchData.userSelected);
         } else if (!matchData.opposite.isFavorite) {
           // Opposite player is an underdog, use it
@@ -316,9 +348,15 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
 
     // Check if this combination has been tried before
     if (previousSelections.includes(selectionKey)) {
-      console.log('This exact combination has been used before, skipping...');
+      console.log(`This exact combination has been used before, skipping... (${previousSelections.length} combinations tried so far)`);
       return false; // Skip this combination
     }
+
+    // Log the current combination details
+    const favoriteCount = selectedMatches.filter(match => match.isFavorite).length;
+    const underdogCount = selectedMatches.length - favoriteCount;
+    console.log(`Generated combination with ${favoriteCount} favorites and ${underdogCount} underdogs`);
+    console.log(`Current combination key: ${selectionKey.substring(0, 50)}...`);
 
     // Calculate potential return based on odds
     const potentialReturn = calculatePotentialReturn(selectedMatches, stake, variationType);
@@ -444,10 +482,10 @@ function calculateCombinations(n, k) {
   // Use the symmetry of combinations: C(n,k) = C(n,n-k)
   if (k > n - k) k = n - k;
 
-  // Calculate C(n,k)
+  // Calculate C(n,k) using a more numerically stable method
   let result = 1;
   for (let i = 1; i <= k; i++) {
-    result *= (n - (k - i));
+    result *= (n - (i - 1));
     result /= i;
   }
 
@@ -473,32 +511,18 @@ function calculateTotalPossibleCombinations(matches) {
   const underdogsToSelect = totalMatches - favoritesToSelect;
 
   // Calculate total possible combinations based on the 60/40 rule
-  // This is the number of ways to select favoritesToSelect from favorites
-  // multiplied by the number of ways to select underdogsToSelect from underdogs
-  let totalPossibleCombinations = 0;
+  // This is the number of ways to select exactly favoritesToSelect favorites from totalMatches matches
+  // which is given by the binomial coefficient C(totalMatches, favoritesToSelect)
+  let totalPossibleCombinations = calculateCombinations(totalMatches, favoritesToSelect);
 
-  // If we have enough favorites and underdogs, calculate combinations
-  if (favorites.length >= favoritesToSelect && underdogs.length >= underdogsToSelect) {
-    // Calculate combinations using the formula: C(n,k) = n! / (k! * (n-k)!)
-    // For favorites: C(favorites.length, favoritesToSelect)
-    const favoritesCombinations = calculateCombinations(favorites.length, favoritesToSelect);
-
-    // For underdogs: C(underdogs.length, underdogsToSelect)
-    const underdogsCombinations = calculateCombinations(underdogs.length, underdogsToSelect);
-
-    // Total combinations is the product of these two values
-    totalPossibleCombinations = favoritesCombinations * underdogsCombinations;
-  } else {
-    // If we don't have enough favorites or underdogs, calculate based on what we have
-    const maxFavoritesToSelect = Math.min(favoritesToSelect, favorites.length);
-    const maxUnderdogsToSelect = Math.min(underdogsToSelect, underdogs.length);
-
-    // Calculate combinations
-    const favoritesCombinations = calculateCombinations(favorites.length, maxFavoritesToSelect);
-    const underdogsCombinations = calculateCombinations(underdogs.length, maxUnderdogsToSelect);
-
-    totalPossibleCombinations = favoritesCombinations * underdogsCombinations;
-  }
+  // Log the calculation details
+  console.log(`Calculating total possible combinations for ${totalMatches} matches:`);
+  console.log(`- Available favorites: ${favorites.length}, Available underdogs: ${underdogs.length}`);
+  console.log(`- Target favorites: ${favoritesToSelect} (${(favoritesToSelect/totalMatches*100).toFixed(1)}%)`);
+  console.log(`- Target underdogs: ${underdogsToSelect} (${(underdogsToSelect/totalMatches*100).toFixed(1)}%)`);
+  console.log(`- Total valid combinations: C(${totalMatches},${favoritesToSelect}) = ${totalPossibleCombinations}`);
+  console.log(`- Total possible combinations (all): 2^${totalMatches} = ${Math.pow(2, totalMatches)}`);
+  console.log(`- Percentage of valid combinations: ${(totalPossibleCombinations/Math.pow(2, totalMatches)*100).toFixed(2)}%`);
 
   return totalPossibleCombinations;
 }
