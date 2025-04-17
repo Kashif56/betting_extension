@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Bot Extension",
+  "version": "1.0.0",
+  "description": "A browser extension for automation",
+
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.ladbrokes.com.au/sports/tennis"],
+      "js": ["content/content.js"]
+    }
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.ladbrokes.com.au/sports/tennis"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["pages/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

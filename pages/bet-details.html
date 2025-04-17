@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bet Details</title>
+  <link rel="stylesheet" href="bet-details.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Bet Details</h1>
+      <div class="actions">
+        <button id="refreshBtn" class="btn secondary">Refresh</button>
+        <button id="clearHistoryBtn" class="btn danger">Clear History</button>
+      </div>
+    </header>
+
+    <div class="bet-status">
+      <div class="status-item">
+        <span class="status-label">Status:</span>
+        <span id="betStatus" class="status-value">Inactive</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Stake Amount:</span>
+        <span id="stakeAmount" class="status-value">$0.00</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Current Variation:</span>
+        <span id="currentVariation" class="status-value">None</span>
+      </div>
+      <div class="status-actions">
+        <button id="startVariationsBtn" class="btn primary">Start Variations</button>
+        <button id="stopVariationsBtn" class="btn danger" disabled>Stop Variations</button>
+      </div>
+    </div>
+
+    <div class="bet-statistics">
+      <h2>Betting Statistics</h2>
+      <div class="stats-container">
+        <div class="stat-info">
+          <p>Based on the 60% favorites / 40% underdogs selection rule</p>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Total Possible Combinations:</span>
+          <span id="totalCombinations" class="stat-value">0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Tried Combinations:</span>
+          <span id="triedCombinations" class="stat-value">0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Remaining Combinations:</span>
+          <span id="remainingCombinations" class="stat-value">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="confirmed-matches">
+      <h2>Confirmed Matches</h2>
+      <div id="confirmedMatchesContainer" class="matches-container">
+        <div class="loading">Loading confirmed matches...</div>
+      </div>
+    </div>
+
+    <div class="bet-history">
+      <h2>Bet History</h2>
+      <div id="betHistoryContainer" class="history-container">
+        <div class="loading">Loading bet history...</div>
+      </div>
+    </div>
+
+    <div class="no-data" id="noData" style="display: none;">
+      <p>No bet data available.</p>
+      <p>Confirm matches from the extension popup to start.</p>
+    </div>
+
+    <footer>
+      <button id="backBtn" class="btn secondary">Back to Popup</button>
+    </footer>
+  </div>
+
+  <script src="bet-details.js"></script>
+</body>
+</html>
