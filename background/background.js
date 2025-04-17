@@ -159,29 +159,12 @@ async function startBetVariations(matches, stake) {
         const variationType = 'Single Bets';
         const variationIndex = 0;
 
-        console.log(`Placing bet with systematic player selection (${currentPreviousSelections.length}/${totalPossibleCombinations} combinations tried)`);
+        console.log(`Placing bet with random player selection (${currentPreviousSelections.length}/${totalPossibleCombinations} combinations tried)`);
 
         // Try to place a bet with the current matches
-        // If it returns false, it means this combination was already used or invalid
-        let success = await placeBet(currentMatches, stake, variationType, variationIndex);
-
-        // If the first attempt failed, keep trying until we succeed or reach the limit
-        let attempts = 1;
-        const maxAttempts = 50; // Limit the number of attempts per interval to avoid infinite loops
-
-        while (!success && attempts < maxAttempts && currentPreviousSelections.length < totalPossibleCombinations) {
-          // Get the latest previous selections after each attempt
-          const latestStatus = await chrome.storage.local.get(['previousSelections', 'betVariationActive']);
-
-          // Stop if variations are no longer active
-          if (!latestStatus.betVariationActive) {
-            break;
-          }
-
-          console.log(`Attempt ${attempts + 1}: Trying another combination...`);
-          success = await placeBet(currentMatches, stake, variationType, variationIndex);
-          attempts++;
-        }
+        // If it returns false, it means this combination was already used
+        // We'll try again on the next interval
+        const success = await placeBet(currentMatches, stake, variationType, variationIndex);
 
         if (success) {
           // Notify any open pages about the update
@@ -189,27 +172,11 @@ async function startBetVariations(matches, stake) {
             action: 'betVariationUpdated',
             variationIndex: variationIndex
           });
-          console.log(`Successfully placed bet after ${attempts} attempt(s)`);
-        } else if (attempts >= maxAttempts) {
-          console.log(`Reached maximum attempts (${maxAttempts}) without success. Will try again in the next interval.`);
-        }
-
-        // Check if we've reached the total limit after this round of attempts
-        const finalStatus = await chrome.storage.local.get(['previousSelections']);
-        if (finalStatus.previousSelections.length >= totalPossibleCombinations) {
-          console.log(`All ${totalPossibleCombinations} combinations have been generated. Stopping bet variations.`);
-          stopBetVariations();
-
-          // Notify any open pages that all combinations have been tried
-          chrome.runtime.sendMessage({
-            action: 'allCombinationsTried',
-            totalCombinations: totalPossibleCombinations
-          });
         }
       } catch (error) {
         console.error('Error in bet variation interval:', error);
       }
-    }, 5000); // Try combinations every 5 seconds
+    }, 15000); // Try a new random selection every 15 seconds
   } catch (error) {
     console.error('Error starting bet variations:', error);
   }
@@ -300,96 +267,38 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
     // Select players from each match
     const selectedMatches = [];
 
-    // Instead of random selection, we'll use a more systematic approach
-    // based on the current number of previous selections
-    // This ensures we'll eventually try all valid combinations
-
-    // Get the current attempt number (how many combinations we've tried so far)
-    const attemptNumber = previousSelections.length;
-
-    // Group matches by favorite/underdog status
-    const favoriteMatches = [];
-    const underdogMatches = [];
-
-    shuffledMatchIds.forEach(matchId => {
+    // For each match, randomly decide whether to use the user's selection or the opposite player
+    // This ensures we generate all possible combinations over time
+    shuffledMatchIds.forEach((matchId, index) => {
       const matchData = matchesMap[matchId];
-      // Check if user selected player is favorite
-      if (matchData.userSelected.isFavorite) {
-        favoriteMatches.push({ matchId, userIsFavorite: true });
-      } else {
-        underdogMatches.push({ matchId, userIsFavorite: false });
-      }
-    });
+      const useUserSelection = Math.random() < 0.5; // 50% chance to use user's selection
 
-    console.log(`Available matches: ${favoriteMatches.length} with favorite selected, ${underdogMatches.length} with underdog selected`);
-
-    // If we don't have enough of either type, we can't satisfy the 60/40 rule
-    if (favoriteMatches.length < favoritesToSelect || underdogMatches.length < underdogsToSelect) {
-      console.log(`Not enough matches of each type to satisfy 60/40 rule. Need ${favoritesToSelect} favorites and ${underdogsToSelect} underdogs.`);
-      return false;
-    }
-
-    // Use a more systematic approach to generate combinations
-    // We'll use combinatorial number system to generate combinations
-    // This ensures we'll generate all valid combinations without duplicates
-
-    // Function to generate the nth combination of k elements from a set of size n
-    function generateCombination(n, k, index) {
-      // Ensure index is within bounds
-      const maxCombinations = calculateCombinations(n, k);
-      index = index % maxCombinations;
-
-      const result = [];
-      let a = n;
-      let b = k;
-      let x = (calculateCombinations(n, k) - 1) - index; // Reverse the index to start from the beginning
-
-      for (let i = 0; i < k; i++) {
-        a--;
-        while (calculateCombinations(a, b) > x) {
-          a--;
+      // For the first favoritesToSelect matches, we want to select favorites
+      if (index < favoritesToSelect) {
+        // We need a favorite player for this position
+        if (matchData.userSelected.isFavorite && useUserSelection) {
+          // User selected a favorite and we randomly chose to use it
+          selectedMatches.push(matchData.userSelected);
+        } else if (matchData.opposite.isFavorite) {
+          // Opposite player is a favorite, use it
+          selectedMatches.push(matchData.opposite);
+        } else {
+          // Neither is a favorite (shouldn't happen), use whatever we have
+          selectedMatches.push(useUserSelection ? matchData.userSelected : matchData.opposite);
         }
-        result.push(n - 1 - a);
-        x = x - calculateCombinations(a, b);
-        b--;
-      }
-
-      return result;
-    }
-
-    // Generate favorite indices
-    const favoriteIndices = generateCombination(favoriteMatches.length, favoritesToSelect, attemptNumber);
-
-    // Generate underdog indices - use a different starting point to get more variety
-    const underdogIndices = generateCombination(underdogMatches.length, underdogsToSelect, attemptNumber * 31);
-
-    console.log(`Generating combination #${attemptNumber}:`);
-    console.log(`- Favorite indices: ${favoriteIndices.join(', ')}`);
-    console.log(`- Underdog indices: ${underdogIndices.join(', ')}`);
-
-    // Select favorites based on the generated indices
-    favoriteIndices.forEach(index => {
-      const matchId = favoriteMatches[index].matchId;
-      const matchData = matchesMap[matchId];
-
-      // Select the favorite player (either user selected or opposite)
-      if (matchData.userSelected.isFavorite) {
-        selectedMatches.push(matchData.userSelected);
       } else {
-        selectedMatches.push(matchData.opposite);
-      }
-    });
-
-    // Select underdogs based on the generated indices
-    underdogIndices.forEach(index => {
-      const matchId = underdogMatches[index].matchId;
-      const matchData = matchesMap[matchId];
-
-      // Select the underdog player (either user selected or opposite)
-      if (!matchData.userSelected.isFavorite) {
-        selectedMatches.push(matchData.userSelected);
-      } else {
-        selectedMatches.push(matchData.opposite);
+        // For the remaining matches, we want to select underdogs
+        // We need an underdog player for this position
+        if (!matchData.userSelected.isFavorite && useUserSelection) {
+          // User selected an underdog and we randomly chose to use it
+          selectedMatches.push(matchData.userSelected);
+        } else if (!matchData.opposite.isFavorite) {
+          // Opposite player is an underdog, use it
+          selectedMatches.push(matchData.opposite);
+        } else {
+          // Neither is an underdog (shouldn't happen), use whatever we have
+          selectedMatches.push(useUserSelection ? matchData.userSelected : matchData.opposite);
+        }
       }
     });
 
