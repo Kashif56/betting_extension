@@ -7,6 +7,8 @@ const saveSettingsBtn = document.getElementById('saveSettings');
 const matchCountElement = document.getElementById('matchCount');
 const viewMatchesBtn = document.getElementById('viewMatchesBtn');
 const confirmMatchesBtn = document.getElementById('confirmMatchesBtn');
+const favoritesCountInput = document.getElementById('favoritesCount');
+const underdogsCountInput = document.getElementById('underdogsCount');
 
 // Initial state
 let isRunning = false;
@@ -196,6 +198,16 @@ function confirmMatches() {
       return;
     }
 
+    // Get favorites and underdogs counts
+    const favoritesCount = parseInt(favoritesCountInput.value) || 0;
+    const underdogsCount = parseInt(underdogsCountInput.value) || 0;
+    
+    // Validate counts
+    if (favoritesCount < 0 || underdogsCount < 0) {
+      alert('Please enter valid numbers for favorites and underdogs (0 or greater).');
+      return;
+    }
+    
     // Prompt for stake amount
     const stake = prompt('Enter stake amount for each bet:', '10');
 
@@ -211,10 +223,12 @@ function confirmMatches() {
       return;
     }
 
-    // Save confirmed matches and stake to storage
+    // Save confirmed matches, stake, and player counts to storage
     chrome.storage.local.set({
       confirmedMatches: selectedMatches,
       stakeAmount: stakeAmount,
+      favoritesCount: favoritesCount,
+      underdogsCount: underdogsCount,
       betVariationActive: true,
       lastVariationIndex: -1 // Start with -1 so first variation will be 0
     }, () => {
@@ -228,7 +242,9 @@ function confirmMatches() {
       chrome.runtime.sendMessage({
         action: 'startBetVariations',
         matches: selectedMatches,
-        stake: stakeAmount
+        stake: stakeAmount,
+        favoritesCount: favoritesCount,
+        underdogsCount: underdogsCount
       }, (response) => {
         if (chrome.runtime.lastError) {
           console.error('Error sending start variations message:', chrome.runtime.lastError);

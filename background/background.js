@@ -23,6 +23,8 @@ chrome.runtime.onInstalled.addListener(() => {
     selectedMatches: [],
     confirmedMatches: [],
     stakeAmount: 10,
+    favoritesCount: 2,
+    underdogsCount: 2,
     betVariationActive: false,
     lastVariationIndex: -1,
     betHistory: [],
@@ -66,8 +68,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ status: 'Matches updated' });
     }
     else if (message.action === 'startBetVariations') {
-      // Start bet variations
-      startBetVariations(message.matches, message.stake);
+      // Start bet variations with favorites and underdogs counts
+      startBetVariations(message.matches, message.stake, message.favoritesCount, message.underdogsCount);
       sendResponse({ status: 'Bet variations started' });
     }
     else if (message.action === 'stopBetVariations') {
@@ -104,14 +106,14 @@ function updateBadge() {
 }
 
 // Start bet variations
-async function startBetVariations(matches, stake) {
+async function startBetVariations(matches, stake, favoritesCount, underdogsCount) {
   try {
     // If already running, stop it first
     if (betVariationInterval) {
       stopBetVariations();
     }
 
-    console.log(`Starting bet variations with ${matches.length} matches and $${stake} stake`);
+    console.log(`Starting bet variations with ${matches.length} matches, $${stake} stake, ${favoritesCount} favorites, ${underdogsCount} underdogs`);
 
     // Reset previous selections when starting a new session
     await chrome.storage.local.set({ previousSelections: [] });
@@ -127,29 +129,32 @@ async function startBetVariations(matches, stake) {
     betVariationInterval = setInterval(async () => {
       try {
         // Check if variations are still active
-        const status = await chrome.storage.local.get(['betVariationActive', 'confirmedMatches', 'previousSelections']);
+        const status = await chrome.storage.local.get(['betVariationActive', 'confirmedMatches', 'previousSelections', 'favoritesCount', 'underdogsCount']);
         if (!status.betVariationActive) {
           stopBetVariations();
           return;
         }
 
-        // Get the latest confirmed matches
+        // Get the latest confirmed matches and settings
         const currentMatches = status.confirmedMatches || matches;
         const currentPreviousSelections = status.previousSelections || [];
+        const currentFavoritesCount = status.favoritesCount || favoritesCount;
+        const currentUnderdogsCount = status.underdogsCount || underdogsCount;
 
         if (currentMatches.length === 0) {
           console.log('No matches available for betting');
           return;
         }
 
-        // Calculate total possible combinations
-        const totalPossibleCombinations = calculateTotalPossibleCombinations(currentMatches);
+        // Calculate total possible combinations using user-specified counts
+        const totalPossibleCombinations = calculateTotalPossibleCombinations(currentMatches, currentFavoritesCount, currentUnderdogsCount);
 
         // Log detailed information about the current state
         const nonLiveMatches = currentMatches.filter(match => !match.isLive);
         const favorites = nonLiveMatches.filter(match => match.isFavorite);
         const underdogs = nonLiveMatches.filter(match => !match.isFavorite);
         console.log(`Current state: ${nonLiveMatches.length} non-live matches (${favorites.length} favorites, ${underdogs.length} underdogs)`);
+        console.log(`Target selection: ${currentFavoritesCount} favorites, ${currentUnderdogsCount} underdogs`);
         console.log(`Combinations tried: ${currentPreviousSelections.length} out of ${totalPossibleCombinations} possible`);
 
         // Check if we've tried all possible combinations
@@ -202,7 +207,7 @@ async function startBetVariations(matches, stake) {
       } catch (error) {
         console.error('Error in bet variation interval:', error);
       }
-    }, 5000); // Try a new random selection every 5 seconds
+    }, 5000); // Every 5 seconds
   } catch (error) {
     console.error('Error starting bet variations:', error);
   }
@@ -220,12 +225,23 @@ function stopBetVariations() {
   }
 }
 
-// Place a bet with player selection following the 60/40 rule
+// Place a bet with player selection using user-specified favorites and underdogs counts
 async function placeBet(allMatches, stake, variationType, variationIndex) {
   try {
-    // Get previous selections from storage to avoid duplicates
-    const storageResult = await chrome.storage.local.get(['previousSelections']);
+    // Get previous selections and user settings from storage
+    const storageResult = await chrome.storage.local.get(['previousSelections', 'favoritesCount', 'underdogsCount']);
     previousSelections = storageResult.previousSelections || [];
+    const userFavoritesCount = storageResult.favoritesCount || 0;
+    const userUnderdogsCount = storageResult.underdogsCount || 0;
+    
+    // If user hasn't specified counts, use default values
+    const targetFavoritesCount = userFavoritesCount > 0 ? userFavoritesCount : 2;
+    const targetUnderdogsCount = userUnderdogsCount > 0 ? userUnderdogsCount : 2;
+    
+    // Total matches to select
+    const totalMatchesToSelect = targetFavoritesCount + targetUnderdogsCount;
+    
+    console.log(`Target selection: ${targetFavoritesCount} favorites and ${targetUnderdogsCount} underdogs (total: ${totalMatchesToSelect} matches)`);
 
     // Filter out live matches
     const nonLiveMatches = allMatches.filter(match => !match.isLive);
@@ -238,113 +254,109 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
     // Create a map of matches by matchId
     const matchesMap = {};
 
-    // Process each match to create player pairs
+    // Process each match to create player pairs and determine odds-based favorite status
     nonLiveMatches.forEach(match => {
       if (!matchesMap[match.matchId]) {
-        // Initialize with the user's selected player
-        matchesMap[match.matchId] = {
-          userSelected: match,
-          opposite: null
-        };
+        // Get odds and determine favorite status
+        const selectedOdds = parseFloat(match.odds);
+        const opponentOdds = parseFloat(match.otherTeamOdds);
+        
+        let favoriteSelection, underdogSelection;
+        
+        // Check for valid odds
+        if (!isNaN(selectedOdds) && !isNaN(opponentOdds)) {
+          // User's selection is favorite if odds are lower than opponent
+          if (selectedOdds < opponentOdds) {
+            // User selected the favorite
+            match.isFavorite = true;
+            favoriteSelection = match;
+            
+            // Create the opposite player (underdog)
+            underdogSelection = {
+              matchId: match.matchId,
+              tournament: match.tournament,
+              timeInfo: match.timeInfo,
+              team1: match.team1,
+              team2: match.team2,
+              selectedTeam: match.opponentTeam,
+              opponentTeam: match.selectedTeam,
+              odds: match.otherTeamOdds,
+              otherTeamOdds: match.odds,
+              isFavorite: false,
+              isLive: match.isLive,
+              timestamp: Date.now()
+            };
+          } else {
+            // User selected the underdog
+            match.isFavorite = false;
+            underdogSelection = match;
+            
+            // Create the opposite player (favorite)
+            favoriteSelection = {
+              matchId: match.matchId,
+              tournament: match.tournament,
+              timeInfo: match.timeInfo,
+              team1: match.team1,
+              team2: match.team2,
+              selectedTeam: match.opponentTeam,
+              opponentTeam: match.selectedTeam,
+              odds: match.otherTeamOdds,
+              otherTeamOdds: match.odds,
+              isFavorite: true,
+              isLive: match.isLive,
+              timestamp: Date.now()
+            };
+          }
+          
+          // Store both selections
+          matchesMap[match.matchId] = {
+            favorite: favoriteSelection,
+            underdog: underdogSelection
+          };
+        }
       }
-    });
-
-    // For each match, create the opposite player selection
-    Object.keys(matchesMap).forEach(matchId => {
-      const userSelected = matchesMap[matchId].userSelected;
-
-      // Create the opposite player data
-      const oppositePlayer = {
-        matchId: userSelected.matchId,
-        tournament: userSelected.tournament,
-        timeInfo: userSelected.timeInfo,
-        team1: userSelected.team1,
-        team2: userSelected.team2,
-        selectedTeam: userSelected.opponentTeam, // Select the opposite player
-        opponentTeam: userSelected.selectedTeam, // The original selected player becomes the opponent
-        odds: userSelected.otherTeamOdds,
-        otherTeamOdds: userSelected.odds,
-        isFavorite: !userSelected.isFavorite, // Opposite favorite status
-        isLive: userSelected.isLive,
-        timestamp: Date.now()
-      };
-
-      matchesMap[matchId].opposite = oppositePlayer;
     });
 
     // Get unique match IDs
     const uniqueMatchIds = Object.keys(matchesMap);
     console.log(`Available non-live unique matches: ${uniqueMatchIds.length}`);
 
-    if (uniqueMatchIds.length === 0) {
-      console.log('No unique matches available for betting');
+    if (uniqueMatchIds.length < totalMatchesToSelect) {
+      console.log(`Not enough matches available for betting. Need ${totalMatchesToSelect}, have ${uniqueMatchIds.length}`);
       return false;
     }
 
-    // Determine how many matches should have favorites selected (60%)
-    const favoritesToSelect = Math.round(uniqueMatchIds.length * 0.6);
-    const underdogsToSelect = uniqueMatchIds.length - favoritesToSelect;
-
-    console.log(`Selecting players from ${uniqueMatchIds.length} matches: ${favoritesToSelect} favorites (60%) and ${underdogsToSelect} underdogs (40%)`);
-
     // Shuffle the match IDs to randomize selection
     const shuffledMatchIds = shuffleArray([...uniqueMatchIds]);
-
-    // Select players from each match
+    
+    // Select a subset of matches to use in this bet
+    const selectedMatchIds = shuffledMatchIds.slice(0, totalMatchesToSelect);
+    
+    // Randomly decide which matches will use favorites and which will use underdogs
+    shuffleArray(selectedMatchIds);
+    
+    // First N matches will use favorites, remaining will use underdogs
+    const favoriteMatchIds = selectedMatchIds.slice(0, targetFavoritesCount);
+    const underdogMatchIds = selectedMatchIds.slice(targetFavoritesCount, totalMatchesToSelect);
+    
+    // Create the final selection of players
     const selectedMatches = [];
-
-    // For each match, decide whether to use the user's selection or the opposite player
-    // based on the current previousSelections count to ensure we generate all combinations
-    // This is a more systematic approach than random selection
-    const currentCount = previousSelections.length;
-
-    // Use the binary representation of currentCount to determine which player to select for each match
-    // This ensures we try all possible combinations in a systematic way
-    shuffledMatchIds.forEach((matchId, index) => {
-      const matchData = matchesMap[matchId];
-      // Use bit at position index of currentCount to decide which player to select
-      const useUserSelection = ((currentCount >> index) & 1) === 0;
-
-      // For the first favoritesToSelect matches, we want to select favorites
-      if (index < favoritesToSelect) {
-        // We need a favorite player for this position
-        if (matchData.userSelected.isFavorite && useUserSelection) {
-          // User selected a favorite and we chose to use it based on the bit pattern
-          selectedMatches.push(matchData.userSelected);
-        } else if (matchData.opposite.isFavorite) {
-          // Opposite player is a favorite, use it
-          selectedMatches.push(matchData.opposite);
-        } else {
-          // Neither is a favorite (shouldn't happen), use whatever we have
-          selectedMatches.push(useUserSelection ? matchData.userSelected : matchData.opposite);
-        }
-      } else {
-        // For the remaining matches, we want to select underdogs
-        // We need an underdog player for this position
-        if (!matchData.userSelected.isFavorite && useUserSelection) {
-          // User selected an underdog and we chose to use it based on the bit pattern
-          selectedMatches.push(matchData.userSelected);
-        } else if (!matchData.opposite.isFavorite) {
-          // Opposite player is an underdog, use it
-          selectedMatches.push(matchData.opposite);
-        } else {
-          // Neither is an underdog (shouldn't happen), use whatever we have
-          selectedMatches.push(useUserSelection ? matchData.userSelected : matchData.opposite);
-        }
-      }
+    
+    // Add favorite players
+    favoriteMatchIds.forEach(matchId => {
+      selectedMatches.push(matchesMap[matchId].favorite);
     });
+    
+    // Add underdog players
+    underdogMatchIds.forEach(matchId => {
+      selectedMatches.push(matchesMap[matchId].underdog);
+    });
+    
+    // Shuffle the final selection to mix favorites and underdogs
+    shuffleArray(selectedMatches);
 
     // Check if this exact combination has been used before
     const selectionKey = getSelectionKey(selectedMatches);
-
-    // Get the user's original selections to compare against
-    const userSelectionKey = getSelectionKey(nonLiveMatches);
-
-    // Check if this combination matches the user's original selection
-    if (selectionKey === userSelectionKey) {
-      console.log('This combination matches the user\'s original selection, skipping...');
-      return false; // Skip this combination
-    }
 
     // Check if this combination has been tried before
     if (previousSelections.includes(selectionKey)) {
@@ -355,15 +367,21 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
     // Log the current combination details
     const favoriteCount = selectedMatches.filter(match => match.isFavorite).length;
     const underdogCount = selectedMatches.length - favoriteCount;
-    console.log(`Generated combination with ${favoriteCount} favorites and ${underdogCount} underdogs`);
+    console.log(`Generated combination with ${favoriteCount} favorites and ${underdogCount} underdogs from ${totalMatchesToSelect} unique matches`);
     console.log(`Current combination key: ${selectionKey.substring(0, 50)}...`);
 
     // Calculate potential return based on odds
     const potentialReturn = calculatePotentialReturn(selectedMatches, stake, variationType);
 
-    // Check if potential return exceeds threshold (650,000 units)
+    // Check if potential return exceeds threshold (650,000 units) as per PRD
     if (potentialReturn > 650000) {
       console.log(`Potential return exceeds threshold: ${potentialReturn} > 650,000 units, skipping...`);
+      
+      // Add this combination to previous selections even though we're skipping it
+      // This prevents trying this high-return combination again
+      previousSelections.push(selectionKey);
+      await chrome.storage.local.set({ previousSelections });
+      
       return false; // Skip this combination
     }
 
@@ -388,9 +406,6 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
       isLive: match.isLive || false
     }));
 
-    // We already calculated the potential return earlier
-    // Just use it here for the bet object
-
     // Create bet object
     const bet = {
       betId,
@@ -400,7 +415,9 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
       variationIndex,
       potentialReturn,
       timestamp,
-      result: 'pending' // pending, win, loss
+      result: 'pending', // pending, win, loss
+      favoriteCount,
+      underdogCount
     };
 
     // Add to bet history
@@ -417,7 +434,7 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
       betHistory: betHistory
     });
 
-    console.log(`Bet placed: ${variationType} with $${stake} stake, ${selectedMatches.length} matches`);
+    console.log(`Bet placed: ${variationType} with $${stake} stake, ${selectedMatches.length} matches (${favoriteCount} favorites, ${underdogCount} underdogs)`);
     return true;
   } catch (error) {
     console.error('Error placing bet:', error);
@@ -492,37 +509,39 @@ function calculateCombinations(n, k) {
   return Math.round(result);
 }
 
-// Calculate total possible combinations based on the 60/40 rule
-function calculateTotalPossibleCombinations(matches) {
+// Calculate total possible combinations based on user-specified counts
+function calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCount) {
   // Filter out live matches as they are skipped in the betting algorithm
   const nonLiveMatches = matches.filter(match => !match.isLive);
 
   if (nonLiveMatches.length === 0) {
     return 0;
   }
-
-  // Count favorites and underdogs
-  const favorites = nonLiveMatches.filter(match => match.isFavorite);
-  const underdogs = nonLiveMatches.filter(match => !match.isFavorite);
-
-  // Calculate how many favorites and underdogs to select based on 60/40 rule
-  const totalMatches = nonLiveMatches.length;
-  const favoritesToSelect = Math.round(totalMatches * 0.6);
-  const underdogsToSelect = totalMatches - favoritesToSelect;
-
-  // Calculate total possible combinations based on the 60/40 rule
-  // This is the number of ways to select exactly favoritesToSelect favorites from totalMatches matches
-  // which is given by the binomial coefficient C(totalMatches, favoritesToSelect)
-  let totalPossibleCombinations = calculateCombinations(totalMatches, favoritesToSelect);
+  
+  // Get unique match IDs to avoid counting the same match twice
+  const uniqueMatchIds = new Set();
+  nonLiveMatches.forEach(match => {
+    uniqueMatchIds.add(match.matchId);
+  });
+  
+  // Total number of unique matches
+  const totalUniqueMatches = uniqueMatchIds.size;
+  
+  // The total of favorites and underdogs must not exceed the number of matches
+  if (favoritesCount + underdogsCount > totalUniqueMatches) {
+    console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) exceeds available matches (${totalUniqueMatches})`);
+    return 0;
+  }
+  
+  // We need to select which matches will use favorites and which will use underdogs
+  // This is a simple combination problem: C(totalUniqueMatches, favoritesCount)
+  // Since once we choose which matches use favorites, the rest must use underdogs
+  const totalPossibleCombinations = calculateCombinations(totalUniqueMatches, favoritesCount);
 
   // Log the calculation details
-  console.log(`Calculating total possible combinations for ${totalMatches} matches:`);
-  console.log(`- Available favorites: ${favorites.length}, Available underdogs: ${underdogs.length}`);
-  console.log(`- Target favorites: ${favoritesToSelect} (${(favoritesToSelect/totalMatches*100).toFixed(1)}%)`);
-  console.log(`- Target underdogs: ${underdogsToSelect} (${(underdogsToSelect/totalMatches*100).toFixed(1)}%)`);
-  console.log(`- Total valid combinations: C(${totalMatches},${favoritesToSelect}) = ${totalPossibleCombinations}`);
-  console.log(`- Total possible combinations (all): 2^${totalMatches} = ${Math.pow(2, totalMatches)}`);
-  console.log(`- Percentage of valid combinations: ${(totalPossibleCombinations/Math.pow(2, totalMatches)*100).toFixed(2)}%`);
+  console.log(`Calculating total possible combinations for ${totalUniqueMatches} unique matches:`);
+  console.log(`- Target favorites: ${favoritesCount}, Target underdogs: ${underdogsCount}`);
+  console.log(`- Valid combinations: C(${totalUniqueMatches},${favoritesCount}) = ${totalPossibleCombinations}`);
 
   return totalPossibleCombinations;
 }

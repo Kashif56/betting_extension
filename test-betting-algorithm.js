@@ -56,62 +56,8 @@ const mockMatches = [
     otherTeamOdds: '1.2',
     isFavorite: false,
     isLive: false
-  },
-  {
-    matchId: '6',
-    team1: 'Player K',
-    team2: 'Player L',
-    selectedTeam: 'Player K',
-    opponentTeam: 'Player L',
-    odds: '1.6',
-    otherTeamOdds: '2.3',
-    isFavorite: true,
-    isLive: false
-  },
-  {
-    matchId: '7',
-    team1: 'Player M',
-    team2: 'Player N',
-    selectedTeam: 'Player N',
-    opponentTeam: 'Player M',
-    odds: '2.8',
-    otherTeamOdds: '1.5',
-    isFavorite: false,
-    isLive: false
-  },
-  {
-    matchId: '8',
-    team1: 'Player O',
-    team2: 'Player P',
-    selectedTeam: 'Player O',
-    opponentTeam: 'Player P',
-    odds: '1.4',
-    otherTeamOdds: '2.8',
-    isFavorite: true,
-    isLive: false
-  },
-  {
-    matchId: '9',
-    team1: 'Player Q',
-    team2: 'Player R',
-    selectedTeam: 'Player Q',
-    opponentTeam: 'Player R',
-    odds: '1.7',
-    otherTeamOdds: '2.2',
-    isFavorite: true,
-    isLive: false
-  },
-  {
-    matchId: '10',
-    team1: 'Player S',
-    team2: 'Player T',
-    selectedTeam: 'Player T',
-    opponentTeam: 'Player S',
-    odds: '3.5',
-    otherTeamOdds: '1.3',
-    isFavorite: false,
-    isLive: false
   }
+
 ];
 
 // Mock storage for testing

@@ -3,6 +3,8 @@ const refreshBtn = document.getElementById('refreshBtn');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const betStatus = document.getElementById('betStatus');
 const stakeAmount = document.getElementById('stakeAmount');
+const favoritesCount = document.getElementById('favoritesCount');
+const underdogsCount = document.getElementById('underdogsCount');
 const currentVariation = document.getElementById('currentVariation');
 const startVariationsBtn = document.getElementById('startVariationsBtn');
 const stopVariationsBtn = document.getElementById('stopVariationsBtn');
@@ -67,6 +69,8 @@ async function loadBetData() {
     const result = await chrome.storage.local.get([
       'confirmedMatches',
       'stakeAmount',
+      'favoritesCount',
+      'underdogsCount',
       'betVariationActive',
       'lastVariationIndex',
       'betHistory',
@@ -75,13 +79,15 @@ async function loadBetData() {
 
     const confirmedMatches = result.confirmedMatches || [];
     const stake = result.stakeAmount || 0;
+    const favorites = result.favoritesCount || 0;
+    const underdogs = result.underdogsCount || 0;
     const isActive = result.betVariationActive || false;
     const variationIndex = result.lastVariationIndex || -1;
     const betHistory = result.betHistory || [];
     const previousSelections = result.previousSelections || [];
 
     // Update UI based on data
-    updateStatusDisplay(isActive, stake, variationIndex);
+    updateStatusDisplay(isActive, stake, favorites, underdogs, variationIndex);
 
     // Update statistics
     updateStatistics(confirmedMatches, previousSelections);
@@ -114,11 +120,13 @@ async function loadBetData() {
 }
 
 // Update status display
-function updateStatusDisplay(isActive, stake, variationIndex) {
+function updateStatusDisplay(isActive, stake, favorites, underdogs, variationIndex) {
   betStatus.textContent = isActive ? 'Active' : 'Inactive';
   betStatus.style.color = isActive ? '#4CAF50' : '#f44336';
 
   stakeAmount.textContent = `$${stake.toFixed(2)}`;
+  favoritesCount.textContent = favorites;
+  underdogsCount.textContent = underdogs;
 
   if (variationIndex >= 0 && variationIndex < betVariations.length) {
     currentVariation.textContent = betVariations[variationIndex];
@@ -150,62 +158,69 @@ function updateStatistics(confirmedMatches, previousSelections) {
     return;
   }
 
-  // Count favorites and underdogs
-  const favorites = nonLiveMatches.filter(match => match.isFavorite);
-  const underdogs = nonLiveMatches.filter(match => !match.isFavorite);
+  // Get favorite and underdog counts from storage
+  chrome.storage.local.get(['favoritesCount', 'underdogsCount'], (result) => {
+    const favoritesCount = result.favoritesCount || 0;
+    const underdogsCount = result.underdogsCount || 0;
 
-  // Calculate how many favorites and underdogs to select based on 60/40 rule
-  const totalMatches = nonLiveMatches.length;
-  const favoritesToSelect = Math.round(totalMatches * 0.6);
-  const underdogsToSelect = totalMatches - favoritesToSelect;
-
-  // Calculate total possible combinations based on the 60/40 rule
-  // This is the number of ways to select exactly favoritesToSelect favorites from totalMatches matches
-  // which is given by the binomial coefficient C(totalMatches, favoritesToSelect)
-  let totalPossibleCombinations = 0;
-
-  // Calculate combinations using the binomial coefficient
-  // C(n,k) = n! / (k! * (n-k)!)
-  totalPossibleCombinations = calculateCombinations(totalMatches, favoritesToSelect);
-
-  // Log the calculation for debugging
-  console.log(`Calculating total valid combinations for ${totalMatches} matches:`);
-  console.log(`- Available favorites: ${favorites.length}, Available underdogs: ${underdogs.length}`);
-  console.log(`- Target favorites: ${favoritesToSelect} (${(favoritesToSelect/totalMatches*100).toFixed(1)}%)`);
-  console.log(`- Target underdogs: ${underdogsToSelect} (${(underdogsToSelect/totalMatches*100).toFixed(1)}%)`);
-  console.log(`- Total valid combinations: C(${totalMatches},${favoritesToSelect}) = ${totalPossibleCombinations}`);
-  console.log(`- Total possible combinations (all): 2^${totalMatches} = ${Math.pow(2, totalMatches)}`);
-  console.log(`- Percentage of valid combinations: ${(totalPossibleCombinations/Math.pow(2, totalMatches)*100).toFixed(2)}%`);
-
-  // Number of tried combinations is the length of previousSelections
-  const triedCombinationsCount = previousSelections.length;
-
-  // Remaining combinations
-  const remainingCombinationsCount = Math.max(0, totalPossibleCombinations - triedCombinationsCount);
-
-  // Update the UI
-  totalCombinations.textContent = totalPossibleCombinations.toLocaleString();
-  triedCombinations.textContent = triedCombinationsCount.toLocaleString();
-  remainingCombinations.textContent = remainingCombinationsCount.toLocaleString();
-
-  // Update the UI to show if all combinations have been tried
-  if (remainingCombinationsCount <= 0 && totalPossibleCombinations > 0) {
-    // Add a class to the stats container to show completion
-    document.querySelector('.stats-container').classList.add('all-combinations-tried');
-
-    // Update the status display
-    if (betStatus) {
-      betStatus.textContent = 'Completed';
-      betStatus.style.color = '#4CAF50';
+    // Get unique match IDs to avoid counting the same match twice
+    const uniqueMatchIds = new Set();
+    nonLiveMatches.forEach(match => {
+      uniqueMatchIds.add(match.matchId);
+    });
+    
+    // Total number of unique matches
+    const totalUniqueMatches = uniqueMatchIds.size;
+    
+    // The total of favorites and underdogs must not exceed the number of matches
+    if (favoritesCount + underdogsCount > totalUniqueMatches) {
+      console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) exceeds available matches (${totalUniqueMatches})`);
+      totalCombinations.textContent = '0';
+      triedCombinations.textContent = previousSelections.length.toString();
+      remainingCombinations.textContent = '0';
+      return;
     }
+    
+    // We need to select which matches will use favorites and which will use underdogs
+    // This is a simple combination problem: C(totalUniqueMatches, favoritesCount)
+    // Since once we choose which matches use favorites, the rest must use underdogs
+    const totalPossibleCombinations = calculateCombinations(totalUniqueMatches, favoritesCount);
 
-    // Disable the start button and enable the stop button
-    if (startVariationsBtn) startVariationsBtn.disabled = true;
-    if (stopVariationsBtn) stopVariationsBtn.disabled = true;
-  } else {
-    // Remove the class if not all combinations have been tried
-    document.querySelector('.stats-container').classList.remove('all-combinations-tried');
-  }
+    // Log the calculation for debugging
+    console.log(`Calculating total valid combinations for ${totalUniqueMatches} unique matches:`);
+    console.log(`- Target favorites: ${favoritesCount}, Target underdogs: ${underdogsCount}`);
+    console.log(`- Valid combinations: C(${totalUniqueMatches},${favoritesCount}) = ${totalPossibleCombinations}`);
+
+    // Number of tried combinations is the length of previousSelections
+    const triedCombinationsCount = previousSelections.length;
+
+    // Remaining combinations
+    const remainingCombinationsCount = Math.max(0, totalPossibleCombinations - triedCombinationsCount);
+
+    // Update the UI
+    totalCombinations.textContent = totalPossibleCombinations.toLocaleString();
+    triedCombinations.textContent = triedCombinationsCount.toLocaleString();
+    remainingCombinations.textContent = remainingCombinationsCount.toLocaleString();
+
+    // Update the UI to show if all combinations have been tried
+    if (remainingCombinationsCount <= 0 && totalPossibleCombinations > 0) {
+      // Add a class to the stats container to show completion
+      document.querySelector('.stats-container').classList.add('all-combinations-tried');
+
+      // Update the status display
+      if (betStatus) {
+        betStatus.textContent = 'Completed';
+        betStatus.style.color = '#4CAF50';
+      }
+
+      // Disable the start button and enable the stop button
+      if (startVariationsBtn) startVariationsBtn.disabled = true;
+      if (stopVariationsBtn) stopVariationsBtn.disabled = true;
+    } else {
+      // Remove the class if not all combinations have been tried
+      document.querySelector('.stats-container').classList.remove('all-combinations-tried');
+    }
+  });
 }
 
 // Helper function to calculate combinations C(n,k)
@@ -247,9 +262,19 @@ function renderConfirmedMatches(matches) {
     const date = new Date(match.timestamp);
     const formattedDate = date.toLocaleString();
 
+    // Parse odds for comparison
+    const selectedOdds = parseFloat(match.odds);
+    const opponentOdds = parseFloat(match.otherTeamOdds);
+    
+    // Determine if this is a favorite (lower odds) or underdog (higher odds)
+    let isFavorite = false;
+    if (!isNaN(selectedOdds) && !isNaN(opponentOdds)) {
+      isFavorite = selectedOdds < opponentOdds;
+    }
+    
     // Determine favorite status class and text
-    const favoriteClass = match.isFavorite ? 'favorite' : 'underdog';
-    const favoriteText = match.isFavorite ? 'Favorite' : 'Underdog';
+    const favoriteClass = isFavorite ? 'favorite' : 'underdog';
+    const favoriteText = isFavorite ? 'Favorite (Lower Odds)' : 'Underdog (Higher Odds)';
 
     // Determine live status class and text
     const liveClass = match.isLive ? 'live' : '';
@@ -328,8 +353,8 @@ function renderBetHistory(history) {
     }
 
     // Count favorites and underdogs in this bet
-    const favoriteCount = bet.matches.filter(m => m.isFavorite).length;
-    const underdogCount = bet.matches.length - favoriteCount;
+    const favoriteCount = bet.favoriteCount || bet.matches.filter(m => m.isFavorite).length;
+    const underdogCount = bet.underdogCount || (bet.matches.length - favoriteCount);
 
     betCard.innerHTML = `
       <div class="bet-header">
@@ -337,14 +362,14 @@ function renderBetHistory(history) {
         <div class="bet-time">${bet.variationType}</div>
       </div>
       <div class="bet-selection-summary">
-        <div class="selection-count">Selected ${bet.matches.length} players: ${favoriteCount} favorites, ${underdogCount} underdogs</div>
+        <div class="selection-count">Selected ${bet.matches.length} players: ${favoriteCount} favorites (lower odds), ${underdogCount} underdogs (higher odds)</div>
       </div>
       <div class="bet-teams">
         ${bet.matches.map(m => {
           const team1Class = m.selectedTeam === m.team1 ? 'selected-team' : '';
           const team2Class = m.selectedTeam === m.team2 ? 'selected-team' : '';
           const favoriteClass = m.isFavorite ? 'favorite-pick' : 'underdog-pick';
-          const favoriteLabel = m.isFavorite ? 'Favorite' : 'Underdog';
+          const favoriteLabel = m.isFavorite ? 'Favorite (Lower Odds)' : 'Underdog (Higher Odds)';
           return `<div class="bet-match ${favoriteClass}">
             <span class="match-teams-container">
               <span class="${team1Class}">${m.team1 || 'Team 1'}</span> vs <span class="${team2Class}">${m.team2 || 'Team 2'}</span>
@@ -358,7 +383,7 @@ function renderBetHistory(history) {
       </div>
       <div class="bet-details">
         <div class="bet-stake">Stake: <strong>$${bet.stake.toFixed(2)}</strong></div>
-        <div class="bet-variation">Type: <strong>Random Selection</strong></div>
+        <div class="bet-variation">Type: <strong>Custom Selection</strong></div>
       </div>
       <div class="bet-result ${resultClass}">
         <div class="bet-result-details">
@@ -388,10 +413,12 @@ async function startBetVariations() {
       return;
     }
 
-    // Get confirmed matches and stake
-    const result = await chrome.storage.local.get(['confirmedMatches', 'stakeAmount']);
+    // Get confirmed matches, stake, and player counts
+    const result = await chrome.storage.local.get(['confirmedMatches', 'stakeAmount', 'favoritesCount', 'underdogsCount']);
     const matches = result.confirmedMatches || [];
     const stake = result.stakeAmount || 0;
+    const favorites = result.favoritesCount || 0;
+    const underdogs = result.underdogsCount || 0;
 
     if (matches.length === 0) {
       alert('No confirmed matches to place bets on.');
@@ -400,6 +427,12 @@ async function startBetVariations() {
 
     if (stake <= 0) {
       alert('Please set a valid stake amount.');
+      return;
+    }
+    
+    // Validate favorites and underdogs counts
+    if (favorites <= 0 || underdogs <= 0) {
+      alert('Please set valid values for favorites and underdogs counts.');
       return;
     }
 
@@ -413,7 +446,9 @@ async function startBetVariations() {
     chrome.runtime.sendMessage({
       action: 'startBetVariations',
       matches: matches,
-      stake: stake
+      stake: stake,
+      favoritesCount: favorites,
+      underdogsCount: underdogs
     }, () => {
       if (chrome.runtime.lastError) {
         console.error('Error sending start variations message:', chrome.runtime.lastError);

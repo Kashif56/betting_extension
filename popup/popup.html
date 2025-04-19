@@ -22,6 +22,16 @@
       <div class="match-count">
         <span id="matchCount">0</span> matches selected
       </div>
+      <div class="match-preferences">
+        <div class="setting-item">
+          <label for="favoritesCount">Favorites per match:</label>
+          <input type="number" id="favoritesCount" min="0" value="2">
+        </div>
+        <div class="setting-item">
+          <label for="underdogsCount">Underdogs per match:</label>
+          <input type="number" id="underdogsCount" min="0" value="2">
+        </div>
+      </div>
       <div class="match-actions">
         <button id="viewMatchesBtn" class="btn secondary">View Selected Matches</button>
         <button id="confirmMatchesBtn" class="btn primary" disabled>Confirm Matches</button>

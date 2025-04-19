@@ -263,7 +263,7 @@ async function placeBet(allMatches, stake) {
     const potentialReturn = calculatePotentialReturn(selectedMatches, stake);
 
     // Check if potential return exceeds threshold (650,000 units)
-    if (potentialReturn > 650000) {
+    if (potentialReturn > 250000) {
       console.log(`Potential return exceeds threshold: ${potentialReturn} > 650,000 units, skipping...`);
       return false; // Skip this combination
     }
