@@ -114,6 +114,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         maxCount: MAX_AUTO_BETS
       });
     }
+    else if (message.action === 'calculateTotalCombinations') {
+      // Calculate total possible combinations and return the result
+      const { matches, favoritesCount, underdogsCount } = message;
+      const totalCombinations = calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCount);
+      console.log(`Calculated total combinations: ${totalCombinations} for ${matches.length} matches, ${favoritesCount} favorites, ${underdogsCount} underdogs`);
+      sendResponse({ status: 'success', totalCombinations });
+      return true; // Keep messaging channel open for async response
+    }
     else if (message.action === 'matchesUpdated') {
       // Update our local copy of the matches
       selectedMatches = message.matches || [];

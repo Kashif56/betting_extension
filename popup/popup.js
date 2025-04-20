@@ -647,63 +647,107 @@ async function reselectPreviousMatches() {
 // Auto Betting Functions
 async function startAutoBetting() {
   try {
-    // Check if we have confirmed matches
-    const useConfirmedMatches = isMatchesConfirmed && confirmedMatches.length > 0;
-    const validMatches = useConfirmedMatches ? confirmedMatches : selectedMatches;
-    
-    if (validMatches.length === 0) {
-      showNotification('No matches selected for auto betting');
-      return;
-    }
+    const confirmation = confirm('This will start auto betting simulation with the current settings. Continue?');
+    if (!confirmation) return;
     
     // Get stake amount
-    const stakeAmount = parseFloat(stakeAmountInput.value);
-    if (isNaN(stakeAmount) || stakeAmount <= 0) {
-      showNotification('Please enter a valid stake amount');
+    let stake = parseFloat(stakeAmountInput.value);
+    if (isNaN(stake) || stake <= 0) {
+      alert('Please enter a valid stake amount');
       return;
     }
     
-    // If using confirmed matches, ensure they're set in storage
-    if (useConfirmedMatches) {
-      await chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-        if (tabs.length > 0) {
-          await chrome.tabs.sendMessage(tabs[0].id, {
-            action: 'setConfirmedMatches',
-            matches: confirmedMatches
-          });
-        }
-      });
+    // Get matches to use - prefer confirmed matches if available
+    const matchesToUse = confirmedMatches.length > 0 ? confirmedMatches : selectedMatches;
+    
+    // Check if we have enough matches
+    if (matchesToUse.length < 2) {
+      alert('Please select at least 2 matches for auto betting');
+      return;
     }
     
-    // Send message to background script to start auto betting
-    chrome.runtime.sendMessage(
-      { action: 'startAutoBetting', stake: stakeAmount },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error('Error starting auto betting:', chrome.runtime.lastError);
-          showNotification('Error starting auto betting');
-          return;
-        }
-        
-        console.log('Auto betting started response:', response);
-        if (response && response.status === 'success') {
-          showNotification('Auto betting started');
-          
-          // Show terminate button
-          if (terminateAutoBettingButton) {
-            startAutoBettingButton.style.display = 'none';
-            terminateAutoBettingButton.style.display = 'inline-block';
-          }
-        } else if (response && response.status === 'already_running') {
-          showNotification('Auto betting already in progress');
-        } else {
-          showNotification(`Error: ${response?.error || 'Unknown error'}`);
-        }
+    // Get favorites and underdogs counts
+    const favoritesCount = parseInt(favoritesCountInput.value) || 1;
+    const underdogsCount = parseInt(underdogsCountInput.value) || 1;
+    
+    // Calculate total possible combinations and display it
+    const totalCombinations = await calculateAndDisplayTotalCombinations(matchesToUse, favoritesCount, underdogsCount);
+    
+    // Save settings
+    await chrome.storage.local.set({ 
+      stakeAmount: stake,
+      favoritesCount,
+      underdogsCount
+    });
+    
+    // Update UI immediately to show we're starting
+    variationStatus.textContent = `Auto betting simulation running... (${totalCombinations} possible combinations)`;
+    
+    // Show terminate button
+    if (terminateAutoBettingButton) {
+      startAutoBettingButton.style.display = 'none';
+      terminateAutoBettingButton.style.display = 'inline-block';
+    }
+    
+    // Start auto betting - pass the favorites and underdogs counts
+    const response = await chrome.runtime.sendMessage({
+      action: 'startAutoBetting',
+      stake: stake,
+      favoritesCount: favoritesCount,
+      underdogsCount: underdogsCount
+    });
+    
+    console.log('Auto betting response:', response);
+    
+    if (response && response.status === 'success') {
+      console.log('Auto betting started successfully');
+      showNotification('Auto betting simulation started');
+      updateAutoBettingStatus(true);
+    } else {
+      console.error('Error starting auto betting:', response ? response.error : 'No response');
+      showNotification('Error starting auto betting: ' + (response ? response.error : 'No response'));
+      
+      // Revert UI changes
+      if (terminateAutoBettingButton) {
+        terminateAutoBettingButton.style.display = 'none';
+        startAutoBettingButton.style.display = 'inline-block';
       }
-    );
+      variationStatus.textContent = 'Failed to start auto betting';
+      updateAutoBettingStatus(false);
+    }
   } catch (error) {
     console.error('Error starting auto betting:', error);
-    showNotification('Error starting auto betting');
+    showNotification('Failed to start auto betting: ' + error.message);
+    
+    // Revert UI changes
+    if (terminateAutoBettingButton) {
+      terminateAutoBettingButton.style.display = 'none';
+      startAutoBettingButton.style.display = 'inline-block';
+    }
+    updateAutoBettingStatus(false);
+  }
+}
+
+// Function to calculate and display total possible combinations
+async function calculateAndDisplayTotalCombinations(matches, favoritesCount, underdogsCount) {
+  try {
+    // Make a function call to the background script to calculate combinations
+    const response = await chrome.runtime.sendMessage({
+      action: 'calculateTotalCombinations',
+      matches: matches,
+      favoritesCount: favoritesCount,
+      underdogsCount: underdogsCount
+    });
+    
+    if (response && response.totalCombinations !== undefined) {
+      return response.totalCombinations;
+    } else {
+      console.error('Failed to calculate total combinations');
+      return 'Unknown';
+    }
+  } catch (error) {
+    console.error('Error calculating total combinations:', error);
+    return 'Unknown';
   }
 }
 
@@ -733,21 +777,39 @@ async function stopAutoBetting() {
 }
 
 function updateAutoBettingStatus(isActive) {
-  isAutoBetting = isActive;
-  autoBettingStatus.textContent = isActive ? 'Active' : 'Inactive';
-  autoBettingStatus.style.color = isActive ? '#4CAF50' : '#f44336';
-  startAutoBettingBtn.disabled = isActive;
-  stopAutoBettingBtn.disabled = !isActive;
-  
-  // Also disable/enable other buttons based on auto betting status
-  if (isActive) {
-    startBtn.disabled = true;
-    confirmMatchesBtn.disabled = true;
-    reselectPreviousBtn.disabled = true;
-  } else {
-    startBtn.disabled = isRunning;
-    confirmMatchesBtn.disabled = !selectedMatches.length || !isValidMatchCounts();
-    reselectPreviousBtn.disabled = false; // Enable if there are previous matches
+  try {
+    isAutoBetting = isActive;
+    
+    // Update status display if available
+    const autoBettingStatus = document.getElementById('autoBettingStatus');
+    if (autoBettingStatus) {
+      autoBettingStatus.textContent = isActive ? 'Active' : 'Inactive';
+      autoBettingStatus.style.color = isActive ? '#4CAF50' : '#f44336';
+    }
+    
+    // Update buttons
+    if (startAutoBettingButton) {
+      startAutoBettingButton.disabled = isActive;
+    }
+    
+    // Update other interface elements based on auto betting status
+    if (isActive) {
+      // Disable other action buttons while auto betting is active
+      if (startBetVariationsButton) startBetVariationsButton.disabled = true;
+      if (startStopButton) startStopButton.disabled = true;
+      if (confirmMatchesButton) confirmMatchesButton.disabled = true;
+    } else {
+      // Re-enable other buttons when auto betting stops
+      if (startBetVariationsButton) startBetVariationsButton.disabled = false;
+      if (startStopButton) startStopButton.disabled = isRunning;
+      if (confirmMatchesButton && selectedMatches.length > 0) {
+        confirmMatchesButton.disabled = false;
+      }
+    }
+    
+    console.log('Updated auto betting status UI:', isActive);
+  } catch (error) {
+    console.error('Error updating auto betting status UI:', error);
   }
 }
 
@@ -977,16 +1039,43 @@ async function stopBetVariations() {
 }
 
 // Show notification
-function showNotification(message) {
-  if (!notification) return;
-  
-  notification.textContent = message;
-  notification.style.display = 'block';
-  
-  // Hide after 3 seconds
-  setTimeout(() => {
-    notification.style.display = 'none';
-  }, 3000);
+function showNotification(message, type = 'info') {
+  try {
+    if (!notification) {
+      // Try to find or create the notification element if it doesn't exist
+      notification = document.getElementById('notification');
+      
+      if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        notification.className = 'notification';
+        document.body.appendChild(notification);
+      }
+    }
+    
+    // Set message and display
+    notification.textContent = message;
+    notification.className = `notification ${type}`;
+    notification.style.display = 'block';
+    
+    // Add appropriate styling based on notification type
+    if (type === 'error') {
+      notification.style.backgroundColor = '#f44336';
+    } else if (type === 'success') {
+      notification.style.backgroundColor = '#4CAF50';
+    } else {
+      notification.style.backgroundColor = '#2196F3';
+    }
+    
+    // Hide after 3 seconds
+    setTimeout(() => {
+      if (notification) notification.style.display = 'none';
+    }, 3000);
+    
+    console.log(`Notification (${type}):`, message);
+  } catch (error) {
+    console.error('Error showing notification:', error);
+  }
 }
 
 // Validate match counts function - used in input event handlers

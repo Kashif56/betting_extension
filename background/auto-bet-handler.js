@@ -5,12 +5,13 @@
 const STAKE_AMOUNT = 0.10; // Default stake amount in USD
 const DELAY_BETWEEN_ATTEMPTS = 2000; // Delay between attempts in ms
 const MAX_RETRIES = 3; // Maximum number of retries for operations
-const MAX_AUTO_BETS = 5; // Maximum number of auto bets to place in a session
+const MAX_AUTO_BETS = 5; // Default number of auto bets if total combinations is not calculated
 const FAVORITES_RATIO = 0.6; // Ratio of favorites to select (60%)
 
 // State variables
 let isAutoBetting = false;
 let currentAutoBetCount = 0;
+let totalPossibleCombinations = MAX_AUTO_BETS; // This will be updated with calculated value
 let autoBetSession = {
   sessionId: null,
   originalSelections: [],
@@ -32,7 +33,11 @@ function init() {
 // Handle incoming messages
 function handleMessage(message, sender, sendResponse) {
   if (message.action === 'startAutoBetting') {
-    startAutoBetting(message.stake || STAKE_AMOUNT)
+    // Get user-specified favorites and underdogs counts if provided
+    const userFavoritesCount = message.favoritesCount || 0;
+    const userUnderdogsCount = message.underdogsCount || 0;
+    
+    startAutoBetting(message.stake || STAKE_AMOUNT, userFavoritesCount, userUnderdogsCount)
       .then(result => sendResponse({ status: 'success', result }))
       .catch(error => sendResponse({ status: 'error', error: error.message }));
     return true; // Keep channel open for async response
@@ -53,7 +58,7 @@ function handleMessage(message, sender, sendResponse) {
     sendResponse({
       isAutoBetting,
       currentAutoBetCount,
-      maxAutoBets: MAX_AUTO_BETS,
+      maxAutoBets: totalPossibleCombinations,
       sessionInfo: {
         sessionId: autoBetSession.sessionId,
         completedBets: autoBetSession.completedBets.length,
@@ -66,8 +71,71 @@ function handleMessage(message, sender, sendResponse) {
   }
 }
 
+// Calculate total possible combinations for the selection
+function calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCount) {
+  try {
+    // Filter out live matches as they are skipped in the betting algorithm
+    const nonLiveMatches = matches.filter(match => !match.isLive);
+
+    if (nonLiveMatches.length === 0) {
+      return 0;
+    }
+    
+    // Get unique match IDs to avoid counting the same match twice
+    const uniqueMatchIds = new Set();
+    nonLiveMatches.forEach(match => {
+      uniqueMatchIds.add(match.matchId);
+    });
+    
+    // Total number of unique matches
+    const totalUniqueMatches = uniqueMatchIds.size;
+    
+    // The total of favorites and underdogs must not exceed the number of matches
+    if (favoritesCount + underdogsCount > totalUniqueMatches) {
+      console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) exceeds available matches (${totalUniqueMatches})`);
+      return 0;
+    }
+    
+    // We need to select which matches will use favorites and which will use underdogs
+    // This is a simple combination problem: C(totalUniqueMatches, favoritesCount)
+    // Since once we choose which matches use favorites, the rest must use underdogs
+    const totalPossibleCombinations = calculateCombinations(totalUniqueMatches, favoritesCount);
+
+    // Log the calculation details
+    console.log(`Calculating total possible combinations for ${totalUniqueMatches} unique matches:`);
+    console.log(`- Target favorites: ${favoritesCount}, Target underdogs: ${underdogsCount}`);
+    console.log(`- Valid combinations: C(${totalUniqueMatches},${favoritesCount}) = ${totalPossibleCombinations}`);
+
+    return totalPossibleCombinations;
+  } catch (error) {
+    console.error('Error calculating combinations:', error);
+    return MAX_AUTO_BETS;
+  }
+}
+
+// Helper function to calculate combinations C(n,k)
+function calculateCombinations(n, k) {
+  // If k is greater than n, return 0
+  if (k > n) return 0;
+
+  // If k is 0 or equal to n, return 1
+  if (k === 0 || k === n) return 1;
+
+  // Use the symmetry of combinations: C(n,k) = C(n,n-k)
+  if (k > n - k) k = n - k;
+
+  // Calculate C(n,k) using a more numerically stable method
+  let result = 1;
+  for (let i = 1; i <= k; i++) {
+    result *= (n - (i - 1));
+    result /= i;
+  }
+
+  return Math.round(result);
+}
+
 // Start the auto betting process
-async function startAutoBetting(stakeAmount = STAKE_AMOUNT) {
+async function startAutoBetting(stakeAmount = STAKE_AMOUNT, favoritesCount = 0, underdogsCount = 0) {
   if (isAutoBetting) {
     console.log('Auto betting already in progress');
     return { status: 'already_running' };
@@ -101,6 +169,28 @@ async function startAutoBetting(stakeAmount = STAKE_AMOUNT) {
     // Store original selections
     autoBetSession.originalSelections = response.matches;
     console.log(`Retrieved ${response.matches.length} selected matches`);
+
+    // Calculate total possible combinations
+    if (favoritesCount > 0 && underdogsCount > 0) {
+      // Use our own implementation directly instead of messaging
+      totalPossibleCombinations = calculateTotalPossibleCombinations(
+        response.matches, 
+        favoritesCount, 
+        underdogsCount
+      );
+      
+      // Ensure we have a reasonable number (at least 1)
+      if (totalPossibleCombinations <= 0) {
+        totalPossibleCombinations = Math.min(MAX_AUTO_BETS, response.matches.length * 2);
+        console.log(`Invalid combination result, using fallback: ${totalPossibleCombinations}`);
+      } else {
+        console.log(`Calculated total possible combinations: ${totalPossibleCombinations}`);
+      }
+    } else {
+      // Use default if counts not provided
+      totalPossibleCombinations = MAX_AUTO_BETS;
+      console.log(`Using default max auto bets: ${totalPossibleCombinations}`);
+    }
 
     // Generate alternative selections with balanced favorites/underdogs ratio
     autoBetSession.alternativeSelections = generateBalancedPlayerSelections(response.matches);
@@ -272,7 +362,8 @@ async function processAutoBets(tabId, stakeAmount) {
 
   return { 
     status: 'started',
-    matchCount: nonLiveMatches.length
+    matchCount: nonLiveMatches.length,
+    maxCombinations: totalPossibleCombinations
   };
 }
 
@@ -282,9 +373,9 @@ async function processBetLoop(tabId, matches, stakeAmount) {
   const matchIds = matches.map(match => match.matchId);
   
   try {
-    // Loop until we've simulated all bets or reached the limit
-    while (isAutoBetting && currentAutoBetCount < MAX_AUTO_BETS) {
-      console.log(`SIMULATION: Auto bet ${currentAutoBetCount + 1} of ${MAX_AUTO_BETS}`);
+    // Loop until we've simulated all bets or reached the total possible combinations
+    while (isAutoBetting && currentAutoBetCount < totalPossibleCombinations) {
+      console.log(`SIMULATION: Auto bet ${currentAutoBetCount + 1} of ${totalPossibleCombinations}`);
       console.log(`SIMULATION: Using stake amount: ${stakeAmount}`);
       
       // 1. Clear existing selections
@@ -364,7 +455,7 @@ async function processBetLoop(tabId, matches, stakeAmount) {
       chrome.runtime.sendMessage({
         action: 'autoBettingProgress',
         current: currentAutoBetCount,
-        total: MAX_AUTO_BETS,
+        total: totalPossibleCombinations,
         lastBet: {
           potentialReturn: potentialReturn,
           matches: matches.length,
@@ -373,7 +464,7 @@ async function processBetLoop(tabId, matches, stakeAmount) {
         }
       });
       
-      console.log(`SIMULATION: Completed simulation ${currentAutoBetCount} of ${MAX_AUTO_BETS}`);
+      console.log(`SIMULATION: Completed simulation ${currentAutoBetCount} of ${totalPossibleCombinations}`);
       console.log('---------------------------------------');
       
       // 6. Delay before next attempt
