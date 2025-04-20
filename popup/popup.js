@@ -9,6 +9,7 @@ const viewMatchesBtn = document.getElementById('viewMatchesBtn');
 const confirmMatchesBtn = document.getElementById('confirmMatchesBtn');
 const favoritesCountInput = document.getElementById('favoritesCount');
 const underdogsCountInput = document.getElementById('underdogsCount');
+const matchCountWarning = document.getElementById('matchCountWarning');
 
 // Initial state
 let isRunning = false;
@@ -39,6 +40,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateMatchCount(message.matches);
       }
     });
+    
+    // Add event listeners for input validation
+    favoritesCountInput.addEventListener('input', validateMatchCounts);
+    underdogsCountInput.addEventListener('input', validateMatchCounts);
   } catch (error) {
     console.error('Error loading settings:', error);
   }
@@ -152,6 +157,9 @@ async function loadSelectedMatches() {
     const result = await chrome.storage.local.get(['selectedMatches']);
     selectedMatches = result.selectedMatches || [];
     updateMatchCount(selectedMatches);
+    
+    // Also validate match counts when matches are loaded
+    validateMatchCounts();
   } catch (error) {
     console.error('Error loading selected matches:', error);
   }
@@ -165,7 +173,39 @@ function updateMatchCount(matches) {
   // Enable/disable buttons based on whether there are matches
   const hasMatches = selectedMatches.length > 0;
   viewMatchesBtn.disabled = !hasMatches;
-  confirmMatchesBtn.disabled = !hasMatches;
+  confirmMatchesBtn.disabled = !hasMatches || !isValidMatchCounts();
+  
+  // Update validation when match count changes
+  validateMatchCounts();
+}
+
+// Validate that favorites + underdogs equals total match count
+function validateMatchCounts() {
+  const favoritesCount = parseInt(favoritesCountInput.value) || 0;
+  const underdogsCount = parseInt(underdogsCountInput.value) || 0;
+  const totalCount = favoritesCount + underdogsCount;
+  const matchCount = selectedMatches.length;
+  
+  // Show warning if counts don't match and there are matches selected
+  if (matchCount > 0 && totalCount !== matchCount) {
+    matchCountWarning.style.display = 'block';
+    matchCountWarning.textContent = `Total must equal selected matches count (${matchCount})`;
+    confirmMatchesBtn.disabled = true;
+    return false;
+  } else {
+    matchCountWarning.style.display = 'none';
+    // Only enable the confirm button if we have matches
+    confirmMatchesBtn.disabled = matchCount === 0;
+    return true;
+  }
+}
+
+// Check if the current favorite and underdog counts are valid
+function isValidMatchCounts() {
+  const favoritesCount = parseInt(favoritesCountInput.value) || 0;
+  const underdogsCount = parseInt(underdogsCountInput.value) || 0;
+  const totalCount = favoritesCount + underdogsCount;
+  return totalCount === selectedMatches.length;
 }
 
 // Open the selected matches page
@@ -202,7 +242,13 @@ function confirmMatches() {
     const favoritesCount = parseInt(favoritesCountInput.value) || 0;
     const underdogsCount = parseInt(underdogsCountInput.value) || 0;
     
-    // Validate counts
+    // Validate counts match selected matches
+    if (favoritesCount + underdogsCount !== selectedMatches.length) {
+      alert(`The sum of favorites (${favoritesCount}) and underdogs (${underdogsCount}) must equal the number of selected matches (${selectedMatches.length}).`);
+      return;
+    }
+    
+    // Validate counts are non-negative
     if (favoritesCount < 0 || underdogsCount < 0) {
       alert('Please enter valid numbers for favorites and underdogs (0 or greater).');
       return;
