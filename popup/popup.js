@@ -4,9 +4,6 @@ const statusText = document.getElementById('statusText');
 const stakeAmountInput = document.getElementById('stakeAmount');
 const favoritesCountInput = document.getElementById('favoritesCount');
 const underdogsCountInput = document.getElementById('underdogsCount');
-const variationStatus = document.getElementById('variationStatus');
-const startBetVariationsButton = document.getElementById('startBetVariationsButton');
-const stopBetVariationsButton = document.getElementById('stopBetVariationsButton');
 const startAutoBettingButton = document.getElementById('startAutoBettingButton');
 const terminateAutoBettingButton = document.getElementById('terminateAutoBettingButton');
 const settingsButton = document.getElementById('settingsButton');
@@ -26,12 +23,12 @@ let isAutoBetting = false;
 let maxAutoBets = 5; // Default, will be updated from background
 let isMatchesConfirmed = false;
 
-// Betting variations types
-const betVariations = ['Single Bets', 'Multi Bets'];
 
 // Function to directly load and display matches from storage
 function loadMatchesFromStorage() {
   console.log('Direct loading matches from storage...');
+
+
   
   chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed'], (result) => {
     console.log('Direct storage load result:', result);
