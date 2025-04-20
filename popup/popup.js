@@ -644,8 +644,12 @@ async function reselectPreviousMatches() {
 // Auto Betting Functions
 async function startAutoBetting() {
   try {
-    const confirmation = confirm('This will start auto betting simulation with the current settings. Continue?');
+    const confirmation = confirm('WARNING: This will place REAL BETS with REAL MONEY using the current settings. Are you absolutely sure you want to continue?');
     if (!confirmation) return;
+    
+    // Double confirmation for safety
+    const secondConfirmation = confirm('FINAL WARNING: Real money will be used for these bets. Press OK to proceed with placing real bets, or Cancel to abort.');
+    if (!secondConfirmation) return;
     
     // Get stake amount
     let stake = parseFloat(stakeAmountInput.value);
@@ -678,7 +682,7 @@ async function startAutoBetting() {
     });
     
     // Update UI immediately to show we're starting
-    variationStatus.textContent = `Auto betting simulation running... (${totalCombinations} possible combinations)`;
+    variationStatus.textContent = `Auto betting in progress... (${totalCombinations} possible combinations)`;
     
     // Show terminate button
     if (terminateAutoBettingButton) {
@@ -698,7 +702,7 @@ async function startAutoBetting() {
     
     if (response && response.status === 'success') {
       console.log('Auto betting started successfully');
-      showNotification('Auto betting simulation started');
+      showNotification('Real auto betting started - placing bets with real money');
       updateAutoBettingStatus(true);
     } else {
       console.error('Error starting auto betting:', response ? response.error : 'No response');
@@ -837,115 +841,147 @@ async function checkAutoBettingStatus() {
   }
 }
 
-// Handle messages from background script
+// Function to handle incoming messages from background script
 function handleMessage(message) {
-  console.log('Popup received message:', message);
-  
-  if (message.action === 'matchesUpdated') {
-    // Only update if matches are not confirmed
-    if (!isMatchesConfirmed) {
-      selectedMatches = message.matches || [];
-      updateMatchesDisplay(selectedMatches);
-    }
-  } 
-  else if (message.action === 'botStatusChanged') {
-    isRunning = message.isRunning;
-    updateBotStatus(isRunning);
-  }
-  else if (message.action === 'autoBettingStarted') {
-    if (terminateAutoBettingButton) {
-      startAutoBettingButton.style.display = 'none';
-      terminateAutoBettingButton.style.display = 'inline-block';
-    }
-    showNotification('Auto betting simulation started');
-  }
-  else if (message.action === 'autoBettingCompleted') {
-    if (terminateAutoBettingButton) {
-      terminateAutoBettingButton.style.display = 'none';
-      startAutoBettingButton.style.display = 'inline-block';
-    }
+  try {
+    if (!message.action) return;
     
-    const simulationText = message.sessionInfo?.simulationMode ? 'Simulation' : '';
-    showNotification(`${simulationText} Auto betting completed`);
-    
-    // Add simulation summary if available
-    if (message.sessionInfo) {
-      const completedBets = message.sessionInfo.completedBets || 0;
-      const favPercent = message.sessionInfo.favoritePercentage || 0;
+    if (message.action === 'matchesUpdated') {
+      // Handle updated matches list
+      if (message.matches) {
+        selectedMatches = message.matches;
+        updateMatchesDisplay(selectedMatches);
+      }
+    }
+    else if (message.action === 'botStatusUpdated') {
+      // Update bot status in UI
+      isRunning = message.isRunning;
+      updateStatus();
+    }
+    else if (message.action === 'autoBettingProgress') {
+      console.log('Auto betting progress update:', message);
       
-      // Create a simulation log element if it doesn't exist
-      let simLogElement = document.getElementById('simulationLog');
-      if (!simLogElement) {
-        simLogElement = document.createElement('div');
-        simLogElement.id = 'simulationLog';
-        simLogElement.className = 'simulation-log';
-        
-        // Add it after the action section
-        const actionSections = document.querySelectorAll('.action-section');
-        if (actionSections.length > 0) {
-          actionSections[actionSections.length - 1].after(simLogElement);
-        } else {
-          document.querySelector('.container').appendChild(simLogElement);
-        }
+      // Update the auto betting progress in the UI
+      if (terminateAutoBettingButton) {
+        startAutoBettingButton.style.display = 'none';
+        terminateAutoBettingButton.style.display = 'inline-block';
       }
       
-      // Update the simulation log content
-      simLogElement.innerHTML = `
-        <h3>Simulation Summary</h3>
-        <p>Completed ${completedBets} simulated bets</p>
-        <p>Average selections: ${favPercent.toFixed(1)}% favorites</p>
-        <p>Click Start Auto Betting to run another simulation</p>
-      `;
-    }
-  }
-  else if (message.action === 'autoBettingFailed') {
-    if (terminateAutoBettingButton) {
-      terminateAutoBettingButton.style.display = 'none';
-      startAutoBettingButton.style.display = 'inline-block';
-    }
-    
-    const simulationText = message.simulationMode ? 'Simulation' : '';
-    const errorMessage = message.error || 'Unknown error';
-    showNotification(`${simulationText} Auto betting failed: ${errorMessage}`);
-  }
-  else if (message.action === 'autoBettingProgress') {
-    // Update progress display
-    updateAutoBettingProgress(message.current, message.total);
-    
-    // Update simulation log with the latest bet details
-    if (message.lastBet) {
-      let simLogElement = document.getElementById('currentSimulation');
-      if (!simLogElement) {
-        simLogElement = document.createElement('div');
-        simLogElement.id = 'currentSimulation';
-        simLogElement.className = 'current-simulation';
-        
-        // Add it after the action section
-        const actionSections = document.querySelectorAll('.action-section');
-        if (actionSections.length > 0) {
-          actionSections[actionSections.length - 1].after(simLogElement);
-        } else {
-          document.querySelector('.container').appendChild(simLogElement);
-        }
+      // Update status text
+      if (variationStatus) {
+        variationStatus.textContent = `Auto betting in progress: ${message.current}/${message.total}`;
       }
       
-      // Format the potential return with thousand separators
-      const formattedReturn = message.lastBet.potentialReturn ? 
-        message.lastBet.potentialReturn.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : 
-        '0.00';
+      // Update the current bet display
+      showNotification('Real bet placed - preparing next bet');
       
-      // Update the simulation log content
-      simLogElement.innerHTML = `
-        <h3>Current Simulation: ${message.current}/${message.total}</h3>
-        <p>Selected ${message.lastBet.matches} matches</p>
-        <p>Breakdown: ${message.lastBet.favorites} favorites (${Math.round(message.lastBet.favorites/message.lastBet.matches*100)}%) / 
-           ${message.lastBet.underdogs} underdogs (${Math.round(message.lastBet.underdogs/message.lastBet.matches*100)}%)</p>
-        <p>Potential return: $${formattedReturn}</p>
-      `;
+      // Update simulation log with the latest bet details
+      if (message.lastBet) {
+        let simLogElement = document.getElementById('currentSimulation');
+        
+        // Create the element if it doesn't exist
+        if (!simLogElement) {
+          simLogElement = document.createElement('div');
+          simLogElement.id = 'currentSimulation';
+          simLogElement.className = 'current-simulation';
+          
+          const container = document.querySelector('.container');
+          if (container) {
+            container.appendChild(simLogElement);
+          }
+        }
+        
+        // Update the simulation log content
+        simLogElement.innerHTML = `
+          <h3>Current Bet: ${message.current}/${message.total}</h3>
+          <p>Matches: ${message.lastBet.matches}</p>
+          <p>Favorites: ${message.lastBet.favorites}, Underdogs: ${message.lastBet.underdogs}</p>
+          <p>Potential Return: $${message.lastBet.potentialReturn.toFixed(2)}</p>
+          <p>Status: ${message.lastBet.success ? 'Success' : 'Pending'}</p>
+        `;
+      }
     }
+    else if (message.action === 'autoBettingCompleted') {
+      console.log('Auto betting completed:', message);
+      
+      // Update UI to show completed state
+      if (terminateAutoBettingButton) {
+        terminateAutoBettingButton.style.display = 'none';
+        startAutoBettingButton.style.display = 'inline-block';
+      }
+      
+      // Update progress text
+      if (variationStatus) {
+        variationStatus.textContent = 'Auto betting completed';
+      }
+      
+      // Show notification
+      showNotification('Auto betting completed');
+      
+      // Add betting summary if available
+      if (message.sessionInfo && message.sessionInfo.completedBets > 0) {
+        // Create a simulation log element if it doesn't exist
+        let simLogElement = document.getElementById('simulationLog');
+        
+        // Create the element if it doesn't exist
+        if (!simLogElement) {
+          simLogElement = document.createElement('div');
+          simLogElement.id = 'simulationLog';
+          simLogElement.className = 'simulation-log';
+          
+          const container = document.querySelector('.container');
+          if (container) {
+            container.appendChild(simLogElement);
+          }
+        }
+        
+        const completedBets = message.sessionInfo.completedBets;
+        const favoritePercentage = message.sessionInfo.favoritePercentage.toFixed(1);
+        
+        // Update the simulation log content
+        simLogElement.innerHTML = `
+          <h3>Betting Summary</h3>
+          <p>Completed ${completedBets} bets</p>
+          <p>Average favorites percentage: ${favoritePercentage}%</p>
+          <p>Click Start Auto Betting to run another betting session</p>
+        `;
+      }
+      
+      // Update auto betting status
+      updateAutoBettingStatus(false);
+    }
+    else if (message.action === 'autoBettingFailed') {
+      console.error('Auto betting failed:', message);
+      
+      // Update UI to show error state
+      if (terminateAutoBettingButton) {
+        terminateAutoBettingButton.style.display = 'none';
+        startAutoBettingButton.style.display = 'inline-block';
+      }
+      
+      // Update auto betting status
+      updateAutoBettingStatus(false);
+      
+      // Show error notification
+      const errorMessage = message.error || 'Unknown error';
+      showNotification(`Auto betting failed: ${errorMessage}`);
+      
+      // Update status text
+      if (variationStatus) {
+        variationStatus.textContent = `Error: ${errorMessage}`;
+      }
+    }
+    else if (message.action === 'successfulBet') {
+      console.log('Successfully placed bet:', message);
+      showNotification('Successfully placed bet');
+    }
+    else if (message.action === 'betError') {
+      console.error('Error placing bet:', message);
+      showNotification('Error placing bet: ' + message.error);
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
   }
-  
-  return true;
 }
 
 // Toggle bot status

@@ -373,25 +373,25 @@ async function processBetLoop(tabId, matches, stakeAmount) {
   const matchIds = matches.map(match => match.matchId);
   
   try {
-    // Loop until we've simulated all bets or reached the total possible combinations
+    // Loop until we've placed all bets or reached the total possible combinations
     while (isAutoBetting && currentAutoBetCount < totalPossibleCombinations) {
-      console.log(`SIMULATION: Auto bet ${currentAutoBetCount + 1} of ${totalPossibleCombinations}`);
-      console.log(`SIMULATION: Using stake amount: ${stakeAmount}`);
+      console.log(`Auto bet ${currentAutoBetCount + 1} of ${totalPossibleCombinations}`);
+      console.log(`Using stake amount: ${stakeAmount}`);
       
       // 1. Clear existing selections
-      console.log('SIMULATION: Clearing any existing selections');
+      console.log('Clearing any existing selections');
       await chrome.tabs.sendMessage(tabId, { action: 'clearSelections' });
       
       // For each new bet, re-shuffle the selections to get different combinations
       if (currentAutoBetCount > 0) {
         // Generate new selections with 60/40 ratio for subsequent bets
-        console.log('SIMULATION: Generating new player selections with 60/40 favorites/underdogs ratio');
+        console.log('Generating new player selections with 60/40 favorites/underdogs ratio');
         autoBetSession.alternativeSelections = generateBalancedPlayerSelections(autoBetSession.originalSelections);
         matches = autoBetSession.alternativeSelections.filter(match => !match.isLive);
       }
       
-      // Log the selected match details for this simulation
-      console.log('SIMULATION: Selected match details:');
+      // Log the selected match details for this bet
+      console.log('Selected match details:');
       matches.forEach((match, index) => {
         console.log(`  Match ${index + 1}: ${match.team1} vs ${match.team2}`);
         console.log(`    - Selected: ${match.selectedTeam} (Odds: ${match.odds})`);
@@ -401,10 +401,10 @@ async function processBetLoop(tabId, matches, stakeAmount) {
       // Count favorites vs underdogs
       const favoritesCount = matches.filter(m => m.isFavorite).length;
       const underdogsCount = matches.length - favoritesCount;
-      console.log(`SIMULATION: Selection breakdown - ${favoritesCount} favorites (${Math.round(favoritesCount/matches.length*100)}%) and ${underdogsCount} underdogs (${Math.round(underdogsCount/matches.length*100)}%)`);
+      console.log(`Selection breakdown - ${favoritesCount} favorites (${Math.round(favoritesCount/matches.length*100)}%) and ${underdogsCount} underdogs (${Math.round(underdogsCount/matches.length*100)}%)`);
       
       // 2. Select new matches with balanced player selection
-      console.log('SIMULATION: Selecting players on the page');
+      console.log('Selecting players on the page');
       const reselectionResult = await chrome.tabs.sendMessage(tabId, { 
         action: 'reselectMatches', 
         matchIds: matches.map(match => match.matchId),
@@ -414,39 +414,53 @@ async function processBetLoop(tabId, matches, stakeAmount) {
         }))
       });
       
-      console.log('SIMULATION: Reselection result:', reselectionResult);
+      console.log('Reselection result:', reselectionResult);
       
       if (!reselectionResult || reselectionResult.status !== 'started') {
-        console.error('SIMULATION ERROR: Failed to reselect matches');
+        console.error('ERROR: Failed to reselect matches');
         throw new Error('Failed to reselect matches');
       }
       
       // Calculate theoretical return
       const totalOdds = matches.reduce((acc, match) => acc * parseFloat(match.odds), 1);
       const potentialReturn = stakeAmount * totalOdds;
-      console.log(`SIMULATION: Total combined odds: ${totalOdds.toFixed(2)}`);
-      console.log(`SIMULATION: Potential return: ${potentialReturn.toFixed(2)} (stake: ${stakeAmount})`);
+      console.log(`Total combined odds: ${totalOdds.toFixed(2)}`);
+      console.log(`Potential return: ${potentialReturn.toFixed(2)} (stake: ${stakeAmount})`);
       
-      // 3. SIMULATION - Instead of placing bet, just record what would have happened
-      console.log('SIMULATION: [NOT PLACING ACTUAL BET] - Just simulating selection');
+      // 3. PLACE ACTUAL BET instead of just simulating
+      console.log('PLACING REAL BET with stake amount:', stakeAmount);
       
-      // Wait a moment to simulate the bet slip interaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Call the placeBetInBetSlip function to place the actual bet
+      const betResult = await placeBetInBetSlip(tabId, stakeAmount);
       
-      // 4. Record the result as a success since we're just simulating
-      autoBetSession.completedBets.push({
-        timestamp: Date.now(),
-        stake: stakeAmount,
-        simulated: true,
-        potentialReturn: potentialReturn,
-        totalOdds: totalOdds,
-        matches: matches.map(match => ({
-          matchId: match.matchId,
-          selectedTeam: match.selectedTeam,
-          odds: match.odds,
-          isFavorite: match.isFavorite
-        }))
-      });
+      // 4. Record the result
+      if (betResult.success) {
+        console.log('Successfully placed bet!');
+        autoBetSession.completedBets.push({
+          timestamp: Date.now(),
+          stake: stakeAmount,
+          simulated: false,
+          potentialReturn: potentialReturn,
+          totalOdds: totalOdds,
+          matches: matches.map(match => ({
+            matchId: match.matchId,
+            selectedTeam: match.selectedTeam,
+            odds: match.odds,
+            isFavorite: match.isFavorite
+          }))
+        });
+      } else {
+        console.error('Failed to place bet:', betResult.error);
+        autoBetSession.failedBets.push({
+          timestamp: Date.now(),
+          error: betResult.error,
+          stake: stakeAmount,
+          matches: matches.map(match => ({
+            matchId: match.matchId,
+            selectedTeam: match.selectedTeam
+          }))
+        });
+      }
       
       // 5. Increment counter
       currentAutoBetCount++;
@@ -460,21 +474,23 @@ async function processBetLoop(tabId, matches, stakeAmount) {
           potentialReturn: potentialReturn,
           matches: matches.length,
           favorites: favoritesCount,
-          underdogs: underdogsCount
+          underdogs: underdogsCount,
+          success: betResult.success
         }
       });
       
-      console.log(`SIMULATION: Completed simulation ${currentAutoBetCount} of ${totalPossibleCombinations}`);
+      console.log(`Completed bet ${currentAutoBetCount} of ${totalPossibleCombinations}`);
       console.log('---------------------------------------');
       
       // 6. Delay before next attempt
-      console.log(`SIMULATION: Waiting ${DELAY_BETWEEN_ATTEMPTS}ms before next simulation`);
+      console.log(`Waiting ${DELAY_BETWEEN_ATTEMPTS}ms before next bet`);
       await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_ATTEMPTS));
     }
     
-    console.log('SIMULATION: Auto betting simulation completed');
-    console.log('SIMULATION SUMMARY:');
-    console.log(`- Total simulations: ${autoBetSession.completedBets.length}`);
+    console.log('Auto betting completed');
+    console.log('BETTING SUMMARY:');
+    console.log(`- Total successful bets: ${autoBetSession.completedBets.length}`);
+    console.log(`- Total failed bets: ${autoBetSession.failedBets.length}`);
     console.log(`- Original selections: ${autoBetSession.originalSelections.length} matches`);
     
     // Calculate average stats
@@ -495,19 +511,19 @@ async function processBetLoop(tabId, matches, stakeAmount) {
         completedBets: autoBetSession.completedBets.length,
         failedBets: autoBetSession.failedBets.length,
         favoritePercentage: favoritePercentage,
-        simulationMode: true
+        simulationMode: false
       }
     });
     
   } catch (error) {
-    console.error('SIMULATION ERROR: Error in auto betting process:', error);
+    console.error('ERROR: Error in auto betting process:', error);
     isAutoBetting = false;
     
     // Notify any listeners that auto betting has failed
     chrome.runtime.sendMessage({
       action: 'autoBettingFailed',
       error: error.message,
-      simulationMode: true
+      simulationMode: false
     });
   }
 }
