@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bet Combinations Log</title>
+  <link rel="stylesheet" href="bet-details.css">
+  <style>
+    .log-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .log-entry {
+      background-color: #f5f5f5;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 15px;
+      border-left: 4px solid #4285f4;
+    }
+    .log-entry.win {
+      border-left: 4px solid #0f9d58;
+    }
+    .log-entry.loss {
+      border-left: 4px solid #db4437;
+    }
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .log-timestamp {
+      color: #666;
+      font-size: 0.9em;
+    }
+    .log-details {
+      margin-top: 10px;
+    }
+    .clear-log {
+      background-color: #db4437;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      cursor: pointer;
+    }
+    .export-log {
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      margin-right: 10px;
+      cursor: pointer;
+    }
+    .no-logs {
+      color: #666;
+      text-align: center;
+      padding: 20px;
+    }
+    .action-bar {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="log-container">
+    <h1>Bet Combinations Log</h1>
+    
+    <div class="action-bar">
+      <button id="exportLogBtn" class="export-log">Export Log</button>
+      <button id="clearLogBtn" class="clear-log">Clear Log</button>
+    </div>
+    
+    <div id="logEntries">
+      <p class="no-logs">No bet combinations have been logged yet.</p>
+    </div>
+  </div>
+  
+  <script src="bet-log.js"></script>
+</body>
+</html> 

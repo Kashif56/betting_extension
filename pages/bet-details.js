@@ -12,6 +12,7 @@ const confirmedMatchesContainer = document.getElementById('confirmedMatchesConta
 const betHistoryContainer = document.getElementById('betHistoryContainer');
 const noData = document.getElementById('noData');
 const backBtn = document.getElementById('backBtn');
+const reselectConfirmedBtn = document.getElementById('reselectConfirmedBtn');
 
 // Statistics Elements
 const totalCombinations = document.getElementById('totalCombinations');
@@ -30,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   clearHistoryBtn.addEventListener('click', clearBetHistory);
   startVariationsBtn.addEventListener('click', startBetVariations);
   stopVariationsBtn.addEventListener('click', stopBetVariations);
+  reselectConfirmedBtn.addEventListener('click', reselectConfirmedMatches);
   backBtn.addEventListener('click', () => {
     window.close();
   });
@@ -522,5 +524,83 @@ async function clearBetHistory() {
   } catch (error) {
     console.error('Error clearing bet history:', error);
     alert('Error clearing bet history. Please try again.');
+  }
+}
+
+// Re-select confirmed matches
+async function reselectConfirmedMatches() {
+  try {
+    // Check if extension context is valid
+    if (!chrome.runtime) {
+      console.log('Extension context invalid, cannot re-select matches');
+      alert('Extension context invalid. Please refresh the page.');
+      return;
+    }
+
+    // Get confirmed matches
+    const result = await chrome.storage.local.get(['confirmedMatches']);
+    const matches = result.confirmedMatches || [];
+
+    if (matches.length === 0) {
+      alert('No confirmed matches to re-select.');
+      return;
+    }
+
+    // Extract match IDs
+    const matchIds = matches.map(match => match.matchId);
+
+    // Save match IDs for future re-selection
+    await chrome.storage.local.set({ previouslyConfirmedMatchIds: matchIds });
+
+    // Open betting site in a new tab
+    // Note: Replace with your actual betting site URL
+    const bettingSiteUrl = prompt('Enter the URL of the betting site:', 'https://www.example.com/betting');
+    
+    if (!bettingSiteUrl) {
+      return; // User cancelled
+    }
+
+    // Open the betting site
+    chrome.tabs.create({ url: bettingSiteUrl }, (tab) => {
+      if (chrome.runtime.lastError) {
+        console.error('Error opening betting site:', chrome.runtime.lastError);
+        alert('Error opening betting site. Please try again.');
+        return;
+      }
+
+      // Wait for the page to load before sending the re-selection message
+      // We'll do this by listening for tab updates
+      const listener = (tabId, changeInfo, updatedTab) => {
+        if (tabId === tab.id && changeInfo.status === 'complete') {
+          // Remove the listener to avoid multiple executions
+          chrome.tabs.onUpdated.removeListener(listener);
+
+          // Wait an additional 2 seconds for the page to fully render
+          setTimeout(() => {
+            // Send the re-selection message
+            chrome.tabs.sendMessage(tab.id, {
+              action: 'reselectMatches',
+              matchIds: matchIds
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Error sending re-selection message:', chrome.runtime.lastError);
+                // Don't alert here as the page might not have the content script loaded yet
+                return;
+              }
+
+              if (response && response.status === 'started') {
+                console.log('Match re-selection started');
+              }
+            });
+          }, 2000);
+        }
+      };
+
+      // Add the listener
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+  } catch (error) {
+    console.error('Error re-selecting confirmed matches:', error);
+    alert('Error re-selecting confirmed matches. Please try again.');
   }
 }

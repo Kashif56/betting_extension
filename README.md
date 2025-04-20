@@ -1,68 +1,62 @@
-# Bot Extension
+# Betting Bot Extension
 
-A browser extension for automation tasks.
-
-## Project Structure
-
-```
-bot-extension/
-├── manifest.json        # Extension configuration
-├── popup/               # Popup UI
-│   ├── popup.html       # Popup HTML
-│   ├── popup.css        # Popup styles
-│   └── popup.js         # Popup functionality
-├── background/          # Background scripts
-│   └── background.js    # Background service worker
-├── content/             # Content scripts
-│   └── content.js       # Content script for web pages
-├── icons/               # Extension icons
-│   ├── icon16.png       # 16x16 icon
-│   ├── icon48.png       # 48x48 icon
-│   └── icon128.png      # 128x128 icon
-└── utils/               # Utility functions
-    └── api.js           # API utilities
-```
-
-## Development
-
-### Prerequisites
-
-- Chrome, Edge, or another Chromium-based browser
-
-### Installation for Development
-
-1. Open your browser and navigate to the extensions page:
-   - Chrome: `chrome://extensions/`
-   - Edge: `edge://extensions/`
-
-2. Enable "Developer mode" using the toggle in the top-right corner.
-
-3. Click "Load unpacked" and select the extension directory.
-
-4. The extension should now be installed and visible in your browser toolbar.
-
-### Building for Production
-
-To package the extension for distribution:
-
-1. Zip the entire extension directory.
-2. Submit to the Chrome Web Store or other browser extension stores.
+A browser extension for automating betting on sports matches, specifically designed for tennis matches on Ladbrokes.
 
 ## Features
 
-- Start/stop automation from the popup
-- Configurable delay between actions
-- Background processing
-- Content script for interacting with web pages
+- Automatically track selected matches
+- Place multiple types of bets
+- Reselect matches with different players automatically
+- Support for various betting strategies
+- Customizable stake amounts
 
-## Customization
+## New Feature: Smart Player Selection Strategy (60/40 Ratio)
 
-To customize the extension for your specific automation needs:
+The extension now supports sophisticated betting with a balanced player selection strategy:
 
-1. Modify the `performBotAction()` function in `content/content.js` to implement your automation logic.
-2. Update the UI in `popup/popup.html` and `popup/popup.css` as needed.
-3. Add additional permissions in `manifest.json` if required.
+1. Captures your manually selected matches
+2. Automatically selects players using a 60% favorites / 40% underdogs ratio
+3. Places bets with your specified stake amount
+4. Repeats the process with new player combinations for multiple bets
+
+### How to Use Auto Betting
+
+1. Manually select your desired matches by clicking on players
+2. Enter your desired stake amount (default: 0.10 USD)
+3. Click the "Start Auto Betting" button
+4. The bot will automatically:
+   - Clear your current selections
+   - Select players using the 60/40 ratio strategy
+   - Navigate to the MultiBet section
+   - Enter your stake amount
+   - Place the bet
+   - Repeat the process with different combinations (up to 5 times by default)
+
+## Getting Started
+
+1. Install the extension
+2. Navigate to a tennis betting page
+3. Select your matches
+4. Configure your betting preferences
+5. Start the bot to automate your betting process
+
+## Development
+
+To develop or modify this extension:
+
+1. Clone the repository
+2. Install dependencies with `npm install`
+3. Make your changes
+4. Load the unpacked extension in Chrome
+
+## Implemented Betting Strategies
+
+The extension now implements the following approaches:
+
+1. **Opposite Player Selection**: Simple and direct, selects the opposite player
+2. **Favorites/Underdogs Ratio (ACTIVE)**: More sophisticated strategy maintaining a 60% favorites and 40% underdogs ratio for optimal betting patterns
+3. **Machine Learning-Based**: Advanced approach using historical data (future development)
 
 ## License
 
-[Your License Here]
+MIT License

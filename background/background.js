@@ -1,10 +1,22 @@
 // Background script for the Bot Extension
+console.log('Bot Extension background script loaded');
+
+// Import auto-bet handler
+import * as AutoBetHandler from './auto-bet-handler.js';
+import { 
+  isAutoBetting, 
+  MAX_AUTO_BETS, 
+  startAutoBetting, 
+  stopAutoBetting,
+  terminateAutoBetting
+} from './auto-bet-handler.js';
 
 // Global variables
 let botInterval = null;
 let betVariationInterval = null;
 let delay = 1000; // Default delay
 let selectedMatches = [];
+let confirmedMatches = []; // Add variable to track confirmed matches
 
 // We'll only use single bets but with different player selections
 const betVariations = ['Single Bets'];
@@ -28,7 +40,9 @@ chrome.runtime.onInstalled.addListener(() => {
     betVariationActive: false,
     lastVariationIndex: -1,
     betHistory: [],
-    previousSelections: []
+    betCombinationLogs: [], // Add new storage for bet logs
+    previousSelections: [],
+    previouslyConfirmedMatchIds: [] // Store previously confirmed match IDs for automatic re-selection
   });
 
   // Load previous selections from storage
@@ -42,20 +56,62 @@ chrome.runtime.onInstalled.addListener(() => {
 // Listen for messages from popup or content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
-    console.log('Background received message:', message);
+    console.log('Background script received message:', message);
 
-    if (message.action === 'startBot') {
-      startBot(message.delay);
-      sendResponse({ status: 'Bot started' });
+    if (message.action === 'toggleBot') {
+      toggleBot()
+        .then(isRunning => sendResponse({ status: 'success', isRunning }))
+        .catch(error => sendResponse({ status: 'error', error: error.message }));
+      return true; // Keep messaging channel open for async response
+    }
+    else if (message.action === 'startBot') {
+      // Start the bot with the provided delay
+      const delay = message.delay || 1000;
+      startBot(delay);
+      sendResponse({ status: 'success', isRunning: true });
     }
     else if (message.action === 'stopBot') {
+      // Stop the bot
       stopBot();
-      sendResponse({ status: 'Bot stopped' });
+      sendResponse({ status: 'success', isRunning: false });
     }
-    else if (message.action === 'getStatus') {
+    else if (message.action === 'getBotStatus') {
+      chrome.storage.local.get(['isRunning'], result => {
+        sendResponse({ status: 'success', isRunning: result.isRunning || false });
+      });
+      return true; // Keep messaging channel open for async response
+    }
+    else if (message.action === 'startBetVariations') {
+      const { matches, stake, favoritesCount, underdogsCount } = message;
+      startBetVariations(matches, stake, favoritesCount, underdogsCount)
+        .then(result => sendResponse({ status: 'success', result }))
+        .catch(error => sendResponse({ status: 'error', error: error.message }));
+      return true; // Keep messaging channel open for async response
+    }
+    else if (message.action === 'stopBetVariations') {
+      stopBetVariations();
+      sendResponse({ status: 'success' });
+    }
+    // New message handlers for auto betting
+    else if (message.action === 'startAutoBetting') {
+      const { stake } = message;
+      startAutoBetting(stake)
+        .then(result => sendResponse({ status: 'success', result }))
+        .catch(error => sendResponse({ status: 'error', error: error.message }));
+      return true;
+    }
+    else if (message.action === 'stopAutoBetting') {
+      stopAutoBetting()
+        .then(result => sendResponse({ status: 'success', result }))
+        .catch(error => sendResponse({ status: 'error', error: error.message }));
+      return true;
+    }
+    else if (message.action === 'getAutoBettingStatus') {
       sendResponse({
-        isRunning: botInterval !== null,
-        delay: delay
+        status: 'success',
+        isAutoBetting,
+        currentCount: 0,
+        maxCount: MAX_AUTO_BETS
       });
     }
     else if (message.action === 'matchesUpdated') {
@@ -65,36 +121,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Update badge with count of selected matches
       updateBadge();
 
+      // Store selected matches in storage for persistence
+      chrome.storage.local.set({ selectedMatches: message.matches })
+        .then(() => console.log('Selected matches saved:', message.matches.length));
+
       sendResponse({ status: 'Matches updated' });
     }
-    else if (message.action === 'startBetVariations') {
-      // Start bet variations with favorites and underdogs counts
-      startBetVariations(message.matches, message.stake, message.favoritesCount, message.underdogsCount);
-      sendResponse({ status: 'Bet variations started' });
+    else if (message.action === 'matchesConfirmed') {
+      // Update our local copy of confirmed matches
+      confirmedMatches = message.matches || [];
+      
+      // Update badge to show count of confirmed matches
+      updateBadge();
+      
+      sendResponse({ status: 'Confirmed matches updated' });
     }
-    else if (message.action === 'stopBetVariations') {
-      // Stop bet variations
-      stopBetVariations();
-      sendResponse({ status: 'Bet variations stopped' });
+    else if (message.action === 'updateBotSettings') {
+      // Update bot settings
+      updateBotSettings(message.settings)
+        .then(result => sendResponse(result))
+        .catch(error => sendResponse({ error: error.message }));
+      return true;
+    }
+    else if (message.action === 'terminateAutoBetting') {
+      // Forcefully terminate auto betting
+      terminateAutoBetting()
+        .then(result => sendResponse(result))
+        .catch(error => sendResponse({ error: error.message }));
+      return true;
+    }
+    else if (message.action === 'openBetLog') {
+      // Open the bet log page
+      chrome.tabs.create({ url: chrome.runtime.getURL('pages/bet-log.html') });
+      sendResponse({ status: 'success' });
     }
   } catch (error) {
     console.error('Error handling message in background script:', error);
-    sendResponse({ error: error.message });
+    sendResponse({ status: 'error', error: error.message });
   }
-
-  // Return true to indicate that we will send a response asynchronously
-  return true;
 });
 
-// Update the extension badge with the count of selected matches
+// Update the extension badge with the count of selected matches and confirmed matches
 function updateBadge() {
   try {
-    const count = selectedMatches.length;
+    let selectedCount = selectedMatches.length;
+    let confirmedCount = confirmedMatches.length;
+    
+    // Use confirmed matches count if available, otherwise use selected matches
+    let displayCount = confirmedCount > 0 ? confirmedCount : selectedCount;
+    let badgeColor = confirmedCount > 0 ? '#4285F4' : '#4CAF50'; // Blue for confirmed, green for selected
 
-    if (count > 0) {
+    if (displayCount > 0) {
       // Set badge text to the count
-      chrome.action.setBadgeText({ text: count.toString() });
-      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+      chrome.action.setBadgeText({ text: displayCount.toString() });
+      chrome.action.setBadgeBackgroundColor({ color: badgeColor });
     } else {
       // Clear badge when no matches
       chrome.action.setBadgeText({ text: '' });
@@ -434,6 +514,15 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
       betHistory: betHistory
     });
 
+    // Log the bet combination
+    await logBetCombination(
+      allMatches, 
+      stake, 
+      variationType, 
+      selectedMatches, 
+      potentialReturn
+    );
+
     console.log(`Bet placed: ${variationType} with $${stake} stake, ${selectedMatches.length} matches (${favoriteCount} favorites, ${underdogCount} underdogs)`);
     return true;
   } catch (error) {
@@ -600,3 +689,67 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     });
   }
 });
+
+// Toggle the bot status
+async function toggleBot() {
+  try {
+    // Get current status
+    const result = await chrome.storage.local.get(['isRunning']);
+    const isRunning = result.isRunning || false;
+    
+    if (isRunning) {
+      // Stop the bot
+      stopBot();
+      // Update storage
+      await chrome.storage.local.set({ isRunning: false });
+      return false; // Return the new status (stopped)
+    } else {
+      // Start the bot
+      startBot();
+      // Update storage
+      await chrome.storage.local.set({ isRunning: true });
+      return true; // Return the new status (running)
+    }
+  } catch (error) {
+    console.error('Error toggling bot:', error);
+    throw error;
+  }
+}
+
+// Log bet combination
+async function logBetCombination(matches, stake, variationType, selections, potentialReturn, result = null, actualReturn = null) {
+  try {
+    // Get current logs
+    const storage = await chrome.storage.local.get(['betCombinationLogs']);
+    const logs = storage.betCombinationLogs || [];
+    
+    // Create log entry
+    const logEntry = {
+      timestamp: Date.now(),
+      variationType,
+      stake,
+      selections: selections.map(selection => ({
+        matchName: selection.match.name,
+        playerSelected: selection.player,
+        odds: selection.odds
+      })),
+      potentialReturn,
+      result,
+      actualReturn
+    };
+    
+    // Add to logs
+    logs.push(logEntry);
+    
+    // Save updated logs
+    await chrome.storage.local.set({ betCombinationLogs: logs });
+    
+    // Notify the log page if it's open
+    chrome.runtime.sendMessage({ action: 'betLogUpdated' })
+      .catch(error => console.error('Error notifying log page:', error));
+      
+    console.log('Bet combination logged:', logEntry);
+  } catch (error) {
+    console.error('Error logging bet combination:', error);
+  }
+}
