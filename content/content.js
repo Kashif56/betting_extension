@@ -152,7 +152,7 @@ async function init() {
     }
 
     // Check if the bot is running
-    const result = await chrome.storage.local.get(['isRunning']);
+    const result = await chrome.storage.local.get(['isRunning', 'isMatchesConfirmed', 'confirmedMatches']);
     isRunning = result.isRunning || false;
 
     console.log('Bot status:', isRunning ? 'Running' : 'Inactive');
@@ -160,12 +160,62 @@ async function init() {
     // Set up match selection tracking
     setupMatchTracking();
 
+    // Check if there are confirmed matches that need to be selected
+    if (result.isMatchesConfirmed && result.confirmedMatches && result.confirmedMatches.length > 0) {
+      console.log('Found confirmed matches, will attempt to select them on page load');
+      
+      // Wait for the page to be fully loaded
+      if (document.readyState !== 'complete') {
+        console.log('Waiting for page to fully load before selecting confirmed matches...');
+        window.addEventListener('load', () => {
+          // Wait a bit more for any dynamic content to load
+          setTimeout(() => {
+            autoSelectConfirmedMatches(result.confirmedMatches);
+          }, 2000);
+        });
+      } else {
+        // Page is already loaded, wait a bit for any dynamic content
+        setTimeout(() => {
+          autoSelectConfirmedMatches(result.confirmedMatches);
+        }, 2000);
+      }
+    }
+
     // If the bot is running, we might want to do some initial setup
     if (isRunning) {
       // Any setup needed when the bot is running
     }
   } catch (error) {
     console.error('Error initializing content script:', error);
+  }
+}
+
+// Function to automatically select confirmed matches
+async function autoSelectConfirmedMatches(confirmedMatches) {
+  try {
+    console.log(`Attempting to auto-select ${confirmedMatches.length} confirmed matches`);
+    
+    // Set flag that we're doing auto-selection (not manual)
+    document.documentElement.setAttribute('data-auto-betting-in-progress', 'true');
+    
+    // Get match IDs and selection info from confirmed matches
+    const matchIds = confirmedMatches.map(match => match.matchId);
+    const playerSelections = confirmedMatches.map(match => ({
+      matchId: match.matchId,
+      selectedTeam: match.selectedTeam
+    }));
+    
+    // Use the existing match reselection function
+    await handleMatchReselection(matchIds, playerSelections);
+    
+    // Clear the auto-selection flag
+    document.documentElement.removeAttribute('data-auto-betting-in-progress');
+    
+    console.log('Confirmed matches auto-selection completed');
+  } catch (error) {
+    console.error('Error auto-selecting confirmed matches:', error);
+    // Clear the flag even if there was an error
+    document.documentElement.removeAttribute('data-auto-betting-in-progress');
   }
 }
 
@@ -663,13 +713,22 @@ async function saveMatchData(matchData, updateGlobalArray = true) {
 // Handle match deselection
 async function handleMatchDeselection(matchId, button) {
   try {
+    // Check if matches are confirmed from storage
+    const isConfirmed = await chrome.storage.local.get(['isMatchesConfirmed', 'confirmedMatches']);
+    
+    // If matches are confirmed, don't allow deselection to affect our stored matches
+    if (isConfirmed.isMatchesConfirmed && isConfirmed.confirmedMatches && isConfirmed.confirmedMatches.length > 0) {
+      console.log(`Match ${matchId} deselected, but matches are confirmed so ignoring deselection`);
+      // Don't update anything - the confirmed matches are locked
+      return;
+    }
+    
+    // If matches are not confirmed, proceed with normal deselection
     // Find the match with this ID and button
     const index = selectedMatches.findIndex(match => match.matchId === matchId);
     
     if (index >= 0) {
-      // We don't remove this match automatically - only when manually deselected
-      // The removal now happens only when user explicitly deselects the match in the UI
-      
+      // We don't remove this match from the global array - only update the background script
       // Create a copy without the deselected match
       const updatedMatches = [...selectedMatches];
       updatedMatches.splice(index, 1);
@@ -1139,6 +1198,14 @@ async function clearSelections() {
     
     console.log(`Clearing betslip selections (Auto-betting: ${isAutoBetting})`);
     
+    // Check if matches are confirmed from storage
+    const result = await chrome.storage.local.get(['isMatchesConfirmed', 'confirmedMatches']);
+    const isMatchesConfirmed = result.isMatchesConfirmed && result.confirmedMatches && result.confirmedMatches.length > 0;
+    
+    if (isMatchesConfirmed) {
+      console.log('Matches are confirmed - will clear UI but keep confirmed matches in memory');
+    }
+    
     // Wait before starting the clear process
     await sleep(1000);
     
@@ -1182,7 +1249,15 @@ async function clearSelections() {
             await sleep(500);
             button.click();
             await sleep(1500);
-            return; // We're done if we found and clicked "Clear All"
+            
+            // If matches are confirmed, we're done - no memory clearing needed
+            if (isMatchesConfirmed) {
+              console.log('UI cleared but keeping confirmed matches in memory');
+              return;
+            }
+            
+            // Otherwise continue to memory clearing below
+            break;
           }
         }
       }
@@ -1202,25 +1277,36 @@ async function clearSelections() {
         clearAllButton.click();
         await sleep(1500);
         console.log('Cleared all selections at once using Clear All button');
-        return;
+        
+        // If matches are confirmed, we're done - no memory clearing needed
+        if (isMatchesConfirmed) {
+          console.log('UI cleared but keeping confirmed matches in memory');
+          return;
+        }
+      } else {
+        // If no Clear All button, find individual remove buttons
+        const removeButtons = betSlipContainer.querySelectorAll('[data-testid="remove-item"]');
+        
+        if (removeButtons.length === 0) {
+          console.log('No selections to clear');
+          return;
+        }
+        
+        console.log(`Clearing ${removeButtons.length} selections one by one`);
+        
+        // Click each remove button with a small delay between clicks
+        for (const button of removeButtons) {
+          await sleep(500); // More time between each button click
+          button.click();
+          await sleep(800); // Wait for UI to update after each removal
+        }
       }
-      
-      // If no Clear All button, find individual remove buttons
-      const removeButtons = betSlipContainer.querySelectorAll('[data-testid="remove-item"]');
-      
-      if (removeButtons.length === 0) {
-        console.log('No selections to clear');
-        return;
-      }
-      
-      console.log(`Clearing ${removeButtons.length} selections one by one`);
-      
-      // Click each remove button with a small delay between clicks
-      for (const button of removeButtons) {
-        await sleep(500); // More time between each button click
-        button.click();
-        await sleep(800); // Wait for UI to update after each removal
-      }
+    }
+    
+    // If matches are confirmed, don't clear memory even for manual actions
+    if (isMatchesConfirmed) {
+      console.log('UI cleared but keeping confirmed matches in memory');
+      return;
     }
     
     // Important: If this is an auto-betting operation, we DON'T clear the selectedMatches
@@ -1639,6 +1725,9 @@ async function clickPlaceBets() {
           success: true
         });
         
+        // Look for and click the "Done" button to automatically deselect matches
+        await clickDoneButton();
+        
         return true;
       }
     }
@@ -1655,6 +1744,10 @@ async function clickPlaceBets() {
         action: 'betPlaced',
         success: true
       });
+      
+      // Look for and click the "Done" button to automatically deselect matches
+      await clickDoneButton();
+      
       return true;
     }
     
@@ -1670,6 +1763,10 @@ async function clickPlaceBets() {
         action: 'betPlaced',
         success: true
       });
+      
+      // Look for and click the "Done" button to automatically deselect matches
+      await clickDoneButton();
+      
       return true;
     }
     
@@ -1695,6 +1792,10 @@ async function clickPlaceBets() {
         action: 'betPlaced',
         success: true
       });
+      
+      // Even with empty betslip, try clicking Done button if it exists
+      await clickDoneButton();
+      
       return true;
     }
     
@@ -1707,6 +1808,10 @@ async function clickPlaceBets() {
         action: 'betPlaced',
         success: true
       });
+      
+      // Look for and click the "Done" button to automatically deselect matches
+      await clickDoneButton();
+      
       return true;
     }
     
@@ -1717,6 +1822,10 @@ async function clickPlaceBets() {
       success: true,
       warning: 'No confirmation receipt found'
     });
+    
+    // Try clicking Done button anyway
+    await clickDoneButton();
+    
     return true;
   } catch (error) {
     console.error('Error placing bets:', error);
@@ -1729,6 +1838,85 @@ async function clickPlaceBets() {
     });
     
     throw error;
+  }
+}
+
+// Function to click the "Done" button after successful bet placement
+async function clickDoneButton() {
+  try {
+    console.log('Looking for Done button to click...');
+    await sleep(1000);
+    
+    // Array of possible selectors for the Done button
+    const doneButtonSelectors = [
+      'button[data-testid="betslip-place-bet-done"]',
+      'button:contains("Done")'
+    ];
+    
+    let doneButton = null;
+    
+    // Try each selector
+    for (const selector of doneButtonSelectors) {
+      if (selector.includes(':contains')) {
+        // Handle text-based selectors
+        const buttonText = selector.match(/:contains\("(.+?)"\)/)[1];
+        const buttons = Array.from(document.querySelectorAll('button'));
+        doneButton = buttons.find(btn => 
+          btn.textContent && 
+          btn.textContent.trim().toLowerCase().includes(buttonText.toLowerCase()) &&
+          btn.offsetParent !== null // Ensure button is visible
+        );
+      } else {
+        const foundButtons = Array.from(document.querySelectorAll(selector)).filter(btn => 
+          btn.offsetParent !== null // Ensure button is visible
+        );
+        if (foundButtons.length > 0) {
+          doneButton = foundButtons[0];
+        }
+      }
+      
+      if (doneButton) {
+        console.log(`Found Done button with selector: ${selector}`);
+        break;
+      }
+    }
+    
+    // If still not found, look in bet receipt or confirmation containers
+    if (!doneButton) {
+      const receiptContainers = document.querySelectorAll(
+        '[data-testid="betslip-receipt"], [data-testid="bet-confirmation"], .bet-receipt, .bet-confirmation'
+      );
+      
+      for (const container of receiptContainers) {
+        if (container.offsetParent !== null) { // Check if visible
+          const buttons = container.querySelectorAll('button');
+          for (const button of buttons) {
+            const text = button.textContent.toLowerCase();
+            if (text.includes('done') || text.includes('close') || text.includes('ok') || text.includes('continue')) {
+              doneButton = button;
+              console.log('Found Done button in receipt container');
+              break;
+            }
+          }
+          if (doneButton) break;
+        }
+      }
+    }
+    
+    // If we found the Done button, click it
+    if (doneButton) {
+      console.log('Clicking Done button to clear selections...');
+      doneButton.click();
+      await sleep(1500); // Wait for UI to update
+      console.log('Done button clicked successfully');
+      return true;
+    } else {
+      console.log('No Done button found, selections may need to be cleared manually');
+      return false;
+    }
+  } catch (error) {
+    console.error('Error clicking Done button:', error);
+    return false;
   }
 }
 
