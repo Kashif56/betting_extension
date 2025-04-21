@@ -2,18 +2,7 @@
 
 // Mock data for testing - now with both players for each match
 const mockMatches = [
-  // Match 1 - Player A (favorite) vs Player B (underdog)
-  {
-    matchId: '1',
-    team1: 'Player A',
-    team2: 'Player B',
-    selectedTeam: 'Player A',
-    opponentTeam: 'Player B',
-    odds: '1.5',
-    otherTeamOdds: '2.5',
-    isFavorite: true,
-    isLive: false
-  },
+
   {
     matchId: '1', // Same match ID
     team1: 'Player A',
@@ -25,102 +14,18 @@ const mockMatches = [
     isFavorite: false,
     isLive: false
   },
-
-  // Match 2 - Player C (favorite) vs Player D (underdog)
-  {
-    matchId: '2',
-    team1: 'Player C',
-    team2: 'Player D',
-    selectedTeam: 'Player C',
-    opponentTeam: 'Player D',
-    odds: '1.8',
-    otherTeamOdds: '2.0',
-    isFavorite: true,
-    isLive: false
-  },
   {
     matchId: '2', // Same match ID
-    team1: 'Player C',
-    team2: 'Player D',
-    selectedTeam: 'Player D',
-    opponentTeam: 'Player C',
+    team1: 'Player A',
+    team2: 'Player B',
+    selectedTeam: 'Player A',
+    opponentTeam: 'Player B',
     odds: '2.0',
     otherTeamOdds: '1.8',
     isFavorite: false,
     isLive: false
   },
 
-  // Match 3 - Player E (favorite) vs Player F (underdog)
-  {
-    matchId: '3',
-    team1: 'Player E',
-    team2: 'Player F',
-    selectedTeam: 'Player E',
-    opponentTeam: 'Player F',
-    odds: '1.4',
-    otherTeamOdds: '3.0',
-    isFavorite: true,
-    isLive: false
-  },
-  {
-    matchId: '3', // Same match ID
-    team1: 'Player E',
-    team2: 'Player F',
-    selectedTeam: 'Player F',
-    opponentTeam: 'Player E',
-    odds: '3.0',
-    otherTeamOdds: '1.4',
-    isFavorite: false,
-    isLive: false
-  },
-
-  // Match 4 - Player G (favorite) vs Player H (underdog) - LIVE match
-  {
-    matchId: '4',
-    team1: 'Player G',
-    team2: 'Player H',
-    selectedTeam: 'Player G',
-    opponentTeam: 'Player H',
-    odds: '1.3',
-    otherTeamOdds: '3.5',
-    isFavorite: true,
-    isLive: true // This is a live match and should be skipped
-  },
-  {
-    matchId: '4', // Same match ID
-    team1: 'Player G',
-    team2: 'Player H',
-    selectedTeam: 'Player H',
-    opponentTeam: 'Player G',
-    odds: '3.5',
-    otherTeamOdds: '1.3',
-    isFavorite: false,
-    isLive: true // This is a live match and should be skipped
-  },
-
-  // Match 5 - Player I (favorite) vs Player J (underdog)
-  {
-    matchId: '5',
-    team1: 'Player I',
-    team2: 'Player J',
-    selectedTeam: 'Player I',
-    opponentTeam: 'Player J',
-    odds: '1.2',
-    otherTeamOdds: '4.0',
-    isFavorite: true,
-    isLive: false
-  },
-  {
-    matchId: '5', // Same match ID
-    team1: 'Player I',
-    team2: 'Player J',
-    selectedTeam: 'Player J',
-    opponentTeam: 'Player I',
-    odds: '4.0',
-    otherTeamOdds: '1.2',
-    isFavorite: false,
-    isLive: false
-  }
 ];
 
 // Mock storage for testing

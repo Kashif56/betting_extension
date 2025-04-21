@@ -2,13 +2,13 @@
 console.log('Bot Extension background script loaded');
 
 // Import auto-bet handler
-import * as AutoBetHandler from './auto-bet-handler.js';
-import { 
-  isAutoBetting, 
-  MAX_AUTO_BETS, 
-  startAutoBetting, 
+import {
+  isAutoBetting,
+  MAX_AUTO_BETS,
+  startAutoBetting,
   stopAutoBetting,
-  terminateAutoBetting
+  terminateAutoBetting,
+  generateAndDisplayAllCombinations
 } from './auto-bet-handler.js';
 
 // Global variables
@@ -117,7 +117,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message.action === 'calculateTotalCombinations') {
       // Calculate total possible combinations and return the result
       const { matches, favoritesCount, underdogsCount } = message;
-      const totalCombinations = calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCount);
+      const totalCombinations = calculateLocalCombinations(matches, favoritesCount, underdogsCount);
       console.log(`Calculated total combinations: ${totalCombinations} for ${matches.length} matches, ${favoritesCount} favorites, ${underdogsCount} underdogs`);
       sendResponse({ status: 'success', totalCombinations });
       return true; // Keep messaging channel open for async response
@@ -138,10 +138,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message.action === 'matchesConfirmed') {
       // Update our local copy of confirmed matches
       confirmedMatches = message.matches || [];
-      
+
       // Update badge to show count of confirmed matches
       updateBadge();
-      
+
       sendResponse({ status: 'Confirmed matches updated' });
     }
     else if (message.action === 'updateBotSettings') {
@@ -163,6 +163,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.tabs.create({ url: chrome.runtime.getURL('pages/bet-log.html') });
       sendResponse({ status: 'success' });
     }
+    else if (message.action === 'generateAllCombinations') {
+      // Generate and display all possible bet combinations
+      const { matches, favoritesCount, underdogsCount } = message;
+
+      // Get previous selections to avoid duplicates
+      chrome.storage.local.get(['previousSelections'], (result) => {
+        const previousSelections = result.previousSelections || [];
+
+        // Call the function to generate and display all combinations
+        // Use the imported function from auto-bet-handler.js
+        const combinationsResult = generateAndDisplayAllCombinations(matches, favoritesCount, underdogsCount, previousSelections);
+
+        // Send the result back to the UI
+        sendResponse({
+          status: 'success',
+          combinations: combinationsResult.combinations,
+          stats: combinationsResult.stats
+        });
+      });
+
+      return true; // Keep messaging channel open for async response
+    }
   } catch (error) {
     console.error('Error handling message in background script:', error);
     sendResponse({ status: 'error', error: error.message });
@@ -174,7 +196,7 @@ function updateBadge() {
   try {
     let selectedCount = selectedMatches.length;
     let confirmedCount = confirmedMatches.length;
-    
+
     // Use confirmed matches count if available, otherwise use selected matches
     let displayCount = confirmedCount > 0 ? confirmedCount : selectedCount;
     let badgeColor = confirmedCount > 0 ? '#4285F4' : '#4CAF50'; // Blue for confirmed, green for selected
@@ -235,7 +257,7 @@ async function startBetVariations(matches, stake, favoritesCount, underdogsCount
         }
 
         // Calculate total possible combinations using user-specified counts
-        const totalPossibleCombinations = calculateTotalPossibleCombinations(currentMatches, currentFavoritesCount, currentUnderdogsCount);
+        const totalPossibleCombinations = calculateLocalCombinations(currentMatches, currentFavoritesCount, currentUnderdogsCount);
 
         // Log detailed information about the current state
         const nonLiveMatches = currentMatches.filter(match => !match.isLive);
@@ -321,14 +343,14 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
     previousSelections = storageResult.previousSelections || [];
     const userFavoritesCount = storageResult.favoritesCount || 0;
     const userUnderdogsCount = storageResult.underdogsCount || 0;
-    
+
     // If user hasn't specified counts, use default values
     const targetFavoritesCount = userFavoritesCount > 0 ? userFavoritesCount : 2;
     const targetUnderdogsCount = userUnderdogsCount > 0 ? userUnderdogsCount : 2;
-    
+
     // Total matches to select
     const totalMatchesToSelect = targetFavoritesCount + targetUnderdogsCount;
-    
+
     console.log(`Target selection: ${targetFavoritesCount} favorites and ${targetUnderdogsCount} underdogs (total: ${totalMatchesToSelect} matches)`);
 
     // Filter out live matches
@@ -348,9 +370,9 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
         // Get odds and determine favorite status
         const selectedOdds = parseFloat(match.odds);
         const opponentOdds = parseFloat(match.otherTeamOdds);
-        
+
         let favoriteSelection, underdogSelection;
-        
+
         // Check for valid odds
         if (!isNaN(selectedOdds) && !isNaN(opponentOdds)) {
           // User's selection is favorite if odds are lower than opponent
@@ -358,7 +380,7 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
             // User selected the favorite
             match.isFavorite = true;
             favoriteSelection = match;
-            
+
             // Create the opposite player (underdog)
             underdogSelection = {
               matchId: match.matchId,
@@ -378,7 +400,7 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
             // User selected the underdog
             match.isFavorite = false;
             underdogSelection = match;
-            
+
             // Create the opposite player (favorite)
             favoriteSelection = {
               matchId: match.matchId,
@@ -395,7 +417,7 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
               timestamp: Date.now()
             };
           }
-          
+
           // Store both selections
           matchesMap[match.matchId] = {
             favorite: favoriteSelection,
@@ -416,30 +438,30 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
 
     // Shuffle the match IDs to randomize selection
     const shuffledMatchIds = shuffleArray([...uniqueMatchIds]);
-    
+
     // Select a subset of matches to use in this bet
     const selectedMatchIds = shuffledMatchIds.slice(0, totalMatchesToSelect);
-    
+
     // Randomly decide which matches will use favorites and which will use underdogs
     shuffleArray(selectedMatchIds);
-    
+
     // First N matches will use favorites, remaining will use underdogs
     const favoriteMatchIds = selectedMatchIds.slice(0, targetFavoritesCount);
     const underdogMatchIds = selectedMatchIds.slice(targetFavoritesCount, totalMatchesToSelect);
-    
+
     // Create the final selection of players
     const selectedMatches = [];
-    
+
     // Add favorite players
     favoriteMatchIds.forEach(matchId => {
       selectedMatches.push(matchesMap[matchId].favorite);
     });
-    
+
     // Add underdog players
     underdogMatchIds.forEach(matchId => {
       selectedMatches.push(matchesMap[matchId].underdog);
     });
-    
+
     // Shuffle the final selection to mix favorites and underdogs
     shuffleArray(selectedMatches);
 
@@ -464,12 +486,12 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
     // Check if potential return exceeds threshold (650,000 units) as per PRD
     if (potentialReturn > 650000) {
       console.log(`Potential return exceeds threshold: ${potentialReturn} > 650,000 units, skipping...`);
-      
+
       // Add this combination to previous selections even though we're skipping it
       // This prevents trying this high-return combination again
       previousSelections.push(selectionKey);
       await chrome.storage.local.set({ previousSelections });
-      
+
       return false; // Skip this combination
     }
 
@@ -524,10 +546,10 @@ async function placeBet(allMatches, stake, variationType, variationIndex) {
 
     // Log the bet combination
     await logBetCombination(
-      allMatches, 
-      stake, 
-      variationType, 
-      selectedMatches, 
+      allMatches,
+      stake,
+      variationType,
+      selectedMatches,
       potentialReturn
     );
 
@@ -607,32 +629,33 @@ function calculateCombinations(n, k) {
 }
 
 // Calculate total possible combinations based on user-specified counts
-function calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCount) {
+function calculateLocalCombinations(matches, favoritesCount, underdogsCount) {
   // Filter out live matches as they are skipped in the betting algorithm
   const nonLiveMatches = matches.filter(match => !match.isLive);
 
   if (nonLiveMatches.length === 0) {
     return 0;
   }
-  
+
   // Get unique match IDs to avoid counting the same match twice
   const uniqueMatchIds = new Set();
   nonLiveMatches.forEach(match => {
     uniqueMatchIds.add(match.matchId);
   });
-  
+
   // Total number of unique matches
   const totalUniqueMatches = uniqueMatchIds.size;
-  
+
   // The total of favorites and underdogs must not exceed the number of matches
   if (favoritesCount + underdogsCount > totalUniqueMatches) {
     console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) exceeds available matches (${totalUniqueMatches})`);
     return 0;
   }
-  
+
   // We need to select which matches will use favorites and which will use underdogs
   // This is a simple combination problem: C(totalUniqueMatches, favoritesCount)
   // Since once we choose which matches use favorites, the rest must use underdogs
+  // Use the helper function to calculate combinations
   const totalPossibleCombinations = calculateCombinations(totalUniqueMatches, favoritesCount);
 
   // Log the calculation details
@@ -704,7 +727,7 @@ async function toggleBot() {
     // Get current status
     const result = await chrome.storage.local.get(['isRunning']);
     const isRunning = result.isRunning || false;
-    
+
     if (isRunning) {
       // Stop the bot
       stopBot();
@@ -730,7 +753,7 @@ async function logBetCombination(matches, stake, variationType, selections, pote
     // Get current logs
     const storage = await chrome.storage.local.get(['betCombinationLogs']);
     const logs = storage.betCombinationLogs || [];
-    
+
     // Create log entry
     const logEntry = {
       timestamp: Date.now(),
@@ -745,17 +768,17 @@ async function logBetCombination(matches, stake, variationType, selections, pote
       result,
       actualReturn
     };
-    
+
     // Add to logs
     logs.push(logEntry);
-    
+
     // Save updated logs
     await chrome.storage.local.set({ betCombinationLogs: logs });
-    
+
     // Notify the log page if it's open
     chrome.runtime.sendMessage({ action: 'betLogUpdated' })
       .catch(error => console.error('Error notifying log page:', error));
-      
+
     console.log('Bet combination logged:', logEntry);
   } catch (error) {
     console.error('Error logging bet combination:', error);

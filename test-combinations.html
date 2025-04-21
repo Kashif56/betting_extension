@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Bet Combinations</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #results {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;
+        }
+        .combination {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        .player {
+            margin-left: 20px;
+            padding: 5px;
+        }
+        .favorite {
+            color: #2196F3;
+        }
+        .underdog {
+            color: #FF5722;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Bet Combinations Generator</h1>
+    
+    <div>
+        <button id="generateBtn">Generate All Combinations</button>
+        <button id="clearBtn">Clear Results</button>
+    </div>
+    
+    <div id="results">Results will appear here...</div>
+    
+    <script>
+        // Sample match data
+        const sampleMatches = [
+            {
+                matchId: '725ba981-1fc6-4d34-8a05-010316bcc390',
+                tournament: 'Unknown Tournament',
+                timeInfo: '',
+                team1: 'Valentin Royer',
+                team2: 'Taro Daniel',
+                selectedTeam: 'Taro Daniel',
+                opponentTeam: 'Valentin Royer',
+                odds: '3.30',
+                otherTeamOdds: '1.30',
+                isFavorite: false,
+                isLive: false,
+                timestamp: 1745229719535
+            },
+            {
+                matchId: 'ac2a7b82-f0d3-4511-b70f-14ab7630b93d',
+                tournament: 'Unknown Tournament',
+                timeInfo: '',
+                team1: 'Roman Andres Burruchaga',
+                team2: 'Vit Kopriva',
+                selectedTeam: 'Vit Kopriva',
+                opponentTeam: 'Roman Andres Burruchaga',
+                odds: '1.40',
+                otherTeamOdds: '2.75',
+                isFavorite: true,
+                isLive: false,
+                timestamp: 1745229725136
+            }
+        ];
+        
+        // Function to generate all combinations
+        function generateAllCombinations() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = 'Generating combinations...';
+            
+            // Send message to background script
+            chrome.runtime.sendMessage({
+                action: 'generateAllCombinations',
+                matches: sampleMatches,
+                favoritesCount: 1,
+                underdogsCount: 1
+            }, (response) => {
+                if (response && response.status === 'success') {
+                    displayResults(response);
+                } else {
+                    resultsDiv.innerHTML = 'Error generating combinations: ' + JSON.stringify(response);
+                }
+            });
+        }
+        
+        // Function to display results
+        function displayResults(response) {
+            const resultsDiv = document.getElementById('results');
+            
+            // Create HTML for the results
+            let html = `<h2>Generated ${response.combinations.length} combinations</h2>`;
+            html += `<h3>Statistics:</h3>`;
+            html += `<ul>`;
+            for (const [key, value] of Object.entries(response.stats)) {
+                html += `<li>${key}: ${value}</li>`;
+            }
+            html += `</ul>`;
+            
+            html += `<h3>Combinations:</h3>`;
+            
+            // Display each combination
+            response.combinations.forEach((combo, index) => {
+                html += `<div class="combination">`;
+                html += `<h4>Combination ${index + 1}</h4>`;
+                html += `<p>Favorites: ${combo.favoriteCount}, Underdogs: ${combo.underdogCount}</p>`;
+                html += `<p>Potential Return: ${combo.potentialReturn.toFixed(2)}</p>`;
+                html += `<p>Selected Players:</p>`;
+                html += `<ul>`;
+                combo.players.forEach((player) => {
+                    const playerClass = player.isFavorite ? 'favorite' : 'underdog';
+                    html += `<li class="player ${playerClass}">`;
+                    html += `${player.name} (${player.isFavorite ? 'Favorite' : 'Underdog'}) with odds ${player.odds}`;
+                    html += `<br><small>Match ID: ${player.matchData.matchId}</small>`;
+                    html += `</li>`;
+                });
+                html += `</ul>`;
+                html += `</div>`;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        // Event listeners
+        document.getElementById('generateBtn').addEventListener('click', generateAllCombinations);
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            document.getElementById('results').innerHTML = 'Results will appear here...';
+        });
+    </script>
+</body>
+</html>

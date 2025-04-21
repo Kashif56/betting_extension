@@ -40,7 +40,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Set matches from confirmed selections
       if (message.matches && message.matches.length > 0) {
         // Store the confirmed matches for reselection
-        chrome.storage.local.set({ 
+        chrome.storage.local.set({
           confirmedMatches: message.matches,
           isMatchesConfirmed: true
         }, () => {
@@ -54,37 +54,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep the message channel open for the async response
     }
     else if (message.action === 'reselectMatches') {
-      // Check if we should use confirmed matches
-      chrome.storage.local.get(['isMatchesConfirmed', 'confirmedMatches'], (result) => {
-        if (result.isMatchesConfirmed && result.confirmedMatches && result.confirmedMatches.length > 0) {
-          console.log('Using confirmed matches for reselection');
-          // Use confirmed matches instead of provided matches
-          handleMatchReselection(
-            result.confirmedMatches.map(match => match.matchId), 
-            result.confirmedMatches.map(match => ({
-              matchId: match.matchId,
-              selectedTeam: match.selectedTeam
-            }))
-          )
-          .then(result => {
-            sendResponse({ status: 'started', result });
-          })
-          .catch(error => {
-            console.error('Error in match re-selection:', error);
-            sendResponse({ error: error.message });
-          });
-        } else {
-          // Handle re-selection of matches by their IDs using provided data
-          handleMatchReselection(message.matchIds, message.playerSelections)
-            .then(result => {
-              sendResponse({ status: 'started', result });
-            })
-            .catch(error => {
-              console.error('Error in match re-selection:', error);
-              sendResponse({ error: error.message });
-            });
-        }
-      });
+      // IMPORTANT: Always use the provided player selections from the background script
+      // This ensures we select exactly what the background script requested
+      console.log('Using provided matches for reselection (ignoring confirmed matches)');
+      console.log('Received matchIds:', message.matchIds);
+      console.log('Received playerSelections:', JSON.stringify(message.playerSelections));
+
+      // Always use the provided selections, even if confirmed matches exist
+      handleMatchReselection(message.matchIds, message.playerSelections)
+        .then(result => {
+          console.log('Reselection completed with provided matches:', result);
+          // Log the current state of selectedMatches after reselection
+          console.log('Current selectedMatches array after reselection:', JSON.stringify(selectedMatches));
+          sendResponse({ status: 'started', result });
+        })
+        .catch(error => {
+          console.error('Error in match re-selection with provided matches:', error);
+          sendResponse({ error: error.message });
+        });
       return true; // Keep the message channel open for the async response
     }
     // New message handlers for bet slip interaction
@@ -163,7 +150,7 @@ async function init() {
     // Check if there are confirmed matches that need to be selected
     if (result.isMatchesConfirmed && result.confirmedMatches && result.confirmedMatches.length > 0) {
       console.log('Found confirmed matches, will attempt to select them on page load');
-      
+
       // Wait for the page to be fully loaded
       if (document.readyState !== 'complete') {
         console.log('Waiting for page to fully load before selecting confirmed matches...');
@@ -194,23 +181,23 @@ async function init() {
 async function autoSelectConfirmedMatches(confirmedMatches) {
   try {
     console.log(`Attempting to auto-select ${confirmedMatches.length} confirmed matches`);
-    
+
     // Set flag that we're doing auto-selection (not manual)
     document.documentElement.setAttribute('data-auto-betting-in-progress', 'true');
-    
+
     // Get match IDs and selection info from confirmed matches
     const matchIds = confirmedMatches.map(match => match.matchId);
     const playerSelections = confirmedMatches.map(match => ({
       matchId: match.matchId,
       selectedTeam: match.selectedTeam
     }));
-    
+
     // Use the existing match reselection function
     await handleMatchReselection(matchIds, playerSelections);
-    
+
     // Clear the auto-selection flag
     document.documentElement.removeAttribute('data-auto-betting-in-progress');
-    
+
     console.log('Confirmed matches auto-selection completed');
   } catch (error) {
     console.error('Error auto-selecting confirmed matches:', error);
@@ -223,7 +210,7 @@ async function autoSelectConfirmedMatches(confirmedMatches) {
 function setupMatchTracking() {
   // Flag to identify if auto-betting is in progress
   let autoBettingInProgress = false;
-  
+
   // Listen for auto-betting messages
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'reselectMatches') {
@@ -235,7 +222,7 @@ function setupMatchTracking() {
       document.documentElement.setAttribute('data-auto-betting-in-progress', 'true');
     }
   });
-  
+
   // Use mutation observer to detect DOM changes
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -274,7 +261,7 @@ function setupMatchTracking() {
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     checkExistingSelections();
   }
-  
+
   // Reset auto-betting flag when page changes
   window.addEventListener('beforeunload', () => {
     document.documentElement.removeAttribute('data-auto-betting-in-progress');
@@ -300,14 +287,14 @@ function handleMatchSelection(button) {
     const matchData = extractMatchData(matchContainer, button);
     if (!matchData) return;
 
-    // Only save if this is a manual selection (not from auto betting)
-    // This helps keep selectedMatches accurate for user selections
-    const isManualSelection = !document.documentElement.hasAttribute('data-auto-betting-in-progress');
+    // Check if this is an auto-betting selection
+    const isAutoBetting = document.documentElement.hasAttribute('data-auto-betting-in-progress');
 
-    // Save the match data
-    saveMatchData(matchData, isManualSelection);
+    // Always update the global array, even during auto-betting
+    // This ensures selectedMatches is always up to date with the current UI state
+    saveMatchData(matchData, true);
 
-    console.log('Match selected:', matchData);
+    console.log(`Match selected: ${matchData.selectedTeam} (Auto-betting: ${isAutoBetting})`);
   } catch (error) {
     console.error('Error handling match selection:', error);
   }
@@ -317,7 +304,7 @@ function handleMatchSelection(button) {
 function findMatchContainer(button) {
   // Navigate up the DOM to find the match container
   let element = button;
-  
+
   // Define possible match container classes/attributes to check
   const containerSelectors = [
     // Generic containers
@@ -329,11 +316,11 @@ function findMatchContainer(button) {
     'market-container',
     'match-container'
   ];
-  
+
   // Navigate up at most 10 levels to find a suitable container
   let maxLevels = 10;
   let currentLevel = 0;
-  
+
   while (element && element.parentElement && currentLevel < maxLevels) {
     // Check if element matches any of our container selectors
     const matchesSelector = containerSelectors.some(selector => {
@@ -341,22 +328,22 @@ function findMatchContainer(button) {
       if (element.getAttribute('data-testid') === selector) return true;
       return false;
     });
-    
+
     if (matchesSelector) {
       console.log('Found match container:', element);
       return element;
     }
-    
+
     // Move up the DOM tree
     element = element.parentElement;
     currentLevel++;
   }
-  
+
   // If we couldn't find a specific container, return the closest meaningful container
   // Try to find the closest element with a data-testid attribute
   element = button;
   currentLevel = 0;
-  
+
   while (element && element.parentElement && currentLevel < maxLevels) {
     if (element.getAttribute('data-testid')) {
       console.log('Found alternative match container with data-testid:', element);
@@ -365,13 +352,13 @@ function findMatchContainer(button) {
     element = element.parentElement;
     currentLevel++;
   }
-  
+
   // Last resort - go up 3 levels from the button as a fallback
   element = button;
   for (let i = 0; i < 3 && element && element.parentElement; i++) {
     element = element.parentElement;
   }
-  
+
   console.log('Using fallback match container:', element);
   return element;
 }
@@ -380,7 +367,7 @@ function findMatchContainer(button) {
 function extractMatchData(matchContainer, selectedButton) {
   try {
     console.log('Extracting match data from container:', matchContainer);
-    
+
     // Extract match ID
     const matchId = selectedButton.getAttribute('data-market-id') || Date.now().toString();
     console.log(`Match ID: ${matchId}`);
@@ -393,7 +380,7 @@ function extractMatchData(matchContainer, selectedButton) {
       '.event-name',
       '[data-testid="tournament-name"]'
     ];
-    
+
     let tournament = 'Unknown Tournament';
     for (const selector of tournamentSelectors) {
       const element = matchContainer.querySelector(selector);
@@ -412,7 +399,7 @@ function extractMatchData(matchContainer, selectedButton) {
       '.time-display',
       '[data-testid="match-time"]'
     ];
-    
+
     let timeInfo = '';
     for (const selector of timeSelectors) {
       const element = matchContainer.querySelector(selector);
@@ -430,7 +417,7 @@ function extractMatchData(matchContainer, selectedButton) {
       '.live-text',
       '[data-testid="live-indicator"]'
     ];
-    
+
     let isLive = false;
     for (const selector of liveIndicatorSelectors) {
       if (matchContainer.querySelector(selector)) {
@@ -438,7 +425,7 @@ function extractMatchData(matchContainer, selectedButton) {
         break;
       }
     }
-    
+
     // Also check if time text contains "live"
     if (timeInfo && timeInfo.toLowerCase().includes('live')) {
       isLive = true;
@@ -447,7 +434,7 @@ function extractMatchData(matchContainer, selectedButton) {
 
     // Extract teams/players - try multiple approaches
     let team1 = 'Team 1', team2 = 'Team 2';
-    
+
     // Approach 1: Look for team-vs-team container
     const teamsContainerSelectors = [
       '[data-testid="team-vs-team"]',
@@ -455,7 +442,7 @@ function extractMatchData(matchContainer, selectedButton) {
       '.team-container',
       '.match-teams'
     ];
-    
+
     let teamsFound = false;
     for (const selector of teamsContainerSelectors) {
       const container = matchContainer.querySelector(selector);
@@ -470,19 +457,19 @@ function extractMatchData(matchContainer, selectedButton) {
         }
       }
     }
-    
+
     // Approach 2: If teams not found, look for home/away or player labels
     if (!teamsFound) {
       const homeSelector = matchContainer.querySelector('.home-team, [data-testid="home-team"]');
       const awaySelector = matchContainer.querySelector('.away-team, [data-testid="away-team"]');
-      
+
       if (homeSelector && awaySelector) {
         team1 = homeSelector.textContent.trim();
         team2 = awaySelector.textContent.trim();
         teamsFound = true;
       }
     }
-    
+
     // Approach 3: Last resort - get all text nodes in match container and look for patterns
     if (!teamsFound) {
       // Get all text nodes within the container
@@ -493,7 +480,7 @@ function extractMatchData(matchContainer, selectedButton) {
         null,
         false
       );
-      
+
       let node;
       while (node = walker.nextNode()) {
         const text = node.nodeValue.trim();
@@ -501,7 +488,7 @@ function extractMatchData(matchContainer, selectedButton) {
           textNodes.push(text);
         }
       }
-      
+
       // Find the two most prominent text nodes (they're likely team names)
       if (textNodes.length >= 2) {
         // Sort by length descending (team names are usually longer)
@@ -510,16 +497,16 @@ function extractMatchData(matchContainer, selectedButton) {
         team2 = textNodes[1];
       }
     }
-    
+
     // Ensure team names are not empty
     if (!team1 || team1.length === 0) team1 = 'Team 1';
     if (!team2 || team2.length === 0) team2 = 'Team 2';
-    
+
     console.log(`Teams: ${team1} vs ${team2}`);
 
     // Extract selected team and odds
     let selectedTeam = 'Unknown Selection';
-    
+
     // Try multiple selectors for team name
     const teamNameSelectors = [
       '.displayTitle',
@@ -527,7 +514,7 @@ function extractMatchData(matchContainer, selectedButton) {
       '.team-selection',
       '[data-testid="selection-name"]'
     ];
-    
+
     for (const selector of teamNameSelectors) {
       const element = selectedButton.querySelector(selector);
       if (element) {
@@ -535,15 +522,15 @@ function extractMatchData(matchContainer, selectedButton) {
         if (selectedTeam) break;
       }
     }
-    
+
     // If no specific element found, use the button text itself
     if (selectedTeam === 'Unknown Selection') {
       selectedTeam = selectedButton.textContent.trim();
     }
-    
+
     // Clean up common selection text formatting
     selectedTeam = selectedTeam.replace(/(\d+\.\d+)|\+|\-|\s*win\s*|\s*to win\s*/gi, '').trim();
-    
+
     console.log(`Selected team: ${selectedTeam}`);
 
     // Extract odds
@@ -554,7 +541,7 @@ function extractMatchData(matchContainer, selectedButton) {
       '.selection-odds',
       '.price'
     ];
-    
+
     for (const selector of oddsSelectors) {
       const element = selectedButton.querySelector(selector);
       if (element) {
@@ -562,7 +549,7 @@ function extractMatchData(matchContainer, selectedButton) {
         if (odds) break;
       }
     }
-    
+
     // If still no odds, try to extract from button text using regex
     if (odds === '1.0') {
       const oddsMatch = selectedButton.textContent.match(/(\d+\.\d+)/);
@@ -570,75 +557,247 @@ function extractMatchData(matchContainer, selectedButton) {
         odds = oddsMatch[1];
       }
     }
-    
+
     console.log(`Selected odds: ${odds}`);
 
     // Find the other team's button, name and odds
     let otherTeamOdds = '1.0';
     let otherTeamName = '';
+    let otherTeamButton = null;
 
     // First try to determine opponent based on team names
     if (selectedTeam === team1) {
       otherTeamName = team2;
     } else if (selectedTeam === team2) {
       otherTeamName = team1;
-    } else {
-      // If selected team doesn't match team1 or team2, try to find the other button
-      const allButtons = matchContainer.querySelectorAll('.price-button, .selection-button, [data-testid="price-button"]');
-      for (const button of allButtons) {
-        if (button !== selectedButton) {
-          // Try to get the team name using the same selectors
-          for (const selector of teamNameSelectors) {
-            const buttonNameElement = button.querySelector(selector);
-            if (buttonNameElement) {
-              const buttonName = buttonNameElement.textContent.trim();
-              // Clean up common selection text formatting
-              const cleanButtonName = buttonName.replace(/(\d+\.\d+)|\+|\-|\s*win\s*|\s*to win\s*/gi, '').trim();
-              
-              if (cleanButtonName && cleanButtonName !== selectedTeam) {
-                otherTeamName = cleanButtonName;
-                
-                // Get odds using the same selectors
-                for (const oddsSelector of oddsSelectors) {
-                  const buttonOddsElement = button.querySelector(oddsSelector);
-                  if (buttonOddsElement) {
-                    otherTeamOdds = buttonOddsElement.textContent.trim();
-                    if (otherTeamOdds) break;
-                  }
-                }
-                
-                // If still no odds, try to extract from button text using regex
-                if (otherTeamOdds === '1.0') {
-                  const oddsMatch = button.textContent.match(/(\d+\.\d+)/);
-                  if (oddsMatch) {
-                    otherTeamOdds = oddsMatch[1];
-                  }
-                }
-                
+    }
+
+    // Find all price buttons in the match container
+    const allButtons = matchContainer.querySelectorAll('.price-button, .selection-button, [data-testid="price-button"], button[data-market-id]');
+    console.log(`Found ${allButtons.length} price buttons in match container`);
+
+    // Look for the other team's button
+    for (const button of allButtons) {
+      // Skip the selected button
+      if (button === selectedButton) continue;
+
+      // Check if this button has the same match ID
+      const buttonMatchId = button.getAttribute('data-market-id');
+      if (buttonMatchId && buttonMatchId !== matchId) {
+        // Skip buttons from other matches
+        continue;
+      }
+
+      // Try to get the team name using the same selectors
+      let buttonTeamName = '';
+      for (const selector of teamNameSelectors) {
+        const buttonNameElement = button.querySelector(selector);
+        if (buttonNameElement) {
+          const buttonName = buttonNameElement.textContent.trim();
+          // Clean up common selection text formatting
+          buttonTeamName = buttonName.replace(/(\d+\.\d+)|\+|\-|\s*win\s*|\s*to win\s*/gi, '').trim();
+          if (buttonTeamName) break;
+        }
+      }
+
+      // If no specific element found, use the button text itself
+      if (!buttonTeamName) {
+        buttonTeamName = button.textContent.trim();
+        buttonTeamName = buttonTeamName.replace(/(\d+\.\d+)|\+|\-|\s*win\s*|\s*to win\s*/gi, '').trim();
+      }
+
+      // Check if this is the other team
+      if (buttonTeamName && buttonTeamName !== selectedTeam) {
+        // If we already have a name from team1/team2 matching, verify it matches
+        if (otherTeamName && buttonTeamName !== otherTeamName) {
+          console.log(`Button team name "${buttonTeamName}" doesn't match expected opponent "${otherTeamName}", checking next button`);
+          continue;
+        }
+
+        otherTeamName = buttonTeamName;
+        otherTeamButton = button;
+
+        // Get odds using the same selectors
+        for (const oddsSelector of oddsSelectors) {
+          const buttonOddsElement = button.querySelector(oddsSelector);
+          if (buttonOddsElement) {
+            otherTeamOdds = buttonOddsElement.textContent.trim();
+            console.log(`Found opponent odds ${otherTeamOdds} using selector ${oddsSelector}`);
+            if (otherTeamOdds) break;
+          }
+        }
+
+        // If still no odds, try to extract from button text using regex
+        if (otherTeamOdds === '1.0') {
+          const oddsMatch = button.textContent.match(/(\d+\.\d+)/);
+          if (oddsMatch) {
+            otherTeamOdds = oddsMatch[1];
+            console.log(`Found opponent odds ${otherTeamOdds} using regex`);
+          }
+        }
+
+        // If we found a button with a name and odds, we're done
+        if (otherTeamOdds !== '1.0') {
+          console.log(`Successfully found opponent button with name "${otherTeamName}" and odds ${otherTeamOdds}`);
+          break;
+        }
+      }
+    }
+
+    // If we still don't have odds but have a button, try one more approach
+    if (otherTeamButton && otherTeamOdds === '1.0') {
+      // Try to find any element with a number that looks like odds
+      const allElements = otherTeamButton.querySelectorAll('*');
+      for (const element of allElements) {
+        const text = element.textContent.trim();
+        const oddsMatch = text.match(/^\s*(\d+\.\d+)\s*$/);
+        if (oddsMatch) {
+          otherTeamOdds = oddsMatch[1];
+          console.log(`Found opponent odds ${otherTeamOdds} from element text`);
+          break;
+        }
+      }
+    }
+
+    console.log(`Opponent team: ${otherTeamName}, odds: ${otherTeamOdds}`);
+
+    // If we still couldn't find the other team's odds, try more approaches
+    if (otherTeamOdds === '1.0' && otherTeamName) {
+      console.log(`Still couldn't find odds for ${otherTeamName}, trying alternative approaches`);
+
+      // Approach 1: Try to find any element containing the team name
+      const allElements = matchContainer.querySelectorAll('*');
+      for (const element of allElements) {
+        const text = element.textContent.trim();
+
+        // Check if this element contains the other team name
+        if (text.includes(otherTeamName)) {
+          // Look for a number that could be odds
+          const oddsMatch = text.match(/(\d+\.\d+)/);
+          if (oddsMatch) {
+            otherTeamOdds = oddsMatch[1];
+            console.log(`Found opponent odds ${otherTeamOdds} from element containing team name`);
+            break;
+          }
+
+          // Also check siblings and parent for odds
+          const siblings = element.parentElement?.children || [];
+          for (const sibling of siblings) {
+            if (sibling !== element) {
+              const siblingText = sibling.textContent.trim();
+              const siblingOddsMatch = siblingText.match(/^\s*(\d+\.\d+)\s*$/);
+              if (siblingOddsMatch) {
+                otherTeamOdds = siblingOddsMatch[1];
+                console.log(`Found opponent odds ${otherTeamOdds} from sibling element`);
                 break;
               }
             }
           }
-          
-          // Break if we found the other team
-          if (otherTeamName) break;
+
+          if (otherTeamOdds !== '1.0') break;
+        }
+      }
+
+      // Approach 2: Look for elements that might be odds displays
+      if (otherTeamOdds === '1.0') {
+        console.log('Trying to find odds displays in the match container');
+
+        // Common classes for odds displays
+        const oddsDisplaySelectors = [
+          '.odds-display',
+          '.price-display',
+          '.selection-price',
+          '[data-testid^="odds-"]',
+          '.price-value'
+        ];
+
+        for (const selector of oddsDisplaySelectors) {
+          const oddsElements = matchContainer.querySelectorAll(selector);
+          if (oddsElements.length >= 2) {
+            // We found at least two odds elements, one should be for our opponent
+            for (const oddsElement of oddsElements) {
+              const oddsText = oddsElement.textContent.trim();
+              const oddsMatch = oddsText.match(/^\s*(\d+\.\d+)\s*$/);
+
+              if (oddsMatch) {
+                const foundOdds = oddsMatch[1];
+                // If this odds value is different from our selected odds, it's likely the opponent's
+                if (foundOdds !== odds) {
+                  otherTeamOdds = foundOdds;
+                  console.log(`Found opponent odds ${otherTeamOdds} from odds display element`);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (otherTeamOdds !== '1.0') break;
+        }
+      }
+
+      // Approach 3: Last resort - scan all text nodes for numbers that look like odds
+      if (otherTeamOdds === '1.0') {
+        console.log('Using last resort approach - scanning all text nodes for odds');
+
+        // Get all text nodes
+        const textNodes = [];
+        const walker = document.createTreeWalker(
+          matchContainer,
+          NodeFilter.SHOW_TEXT,
+          null,
+          false
+        );
+
+        let node;
+        while (node = walker.nextNode()) {
+          const text = node.nodeValue.trim();
+          if (text.length > 0) {
+            textNodes.push({ node, text });
+          }
+        }
+
+        // Look for text nodes that contain just a number (likely odds)
+        const oddsNodes = textNodes.filter(item => {
+          return /^\s*(\d+\.\d+)\s*$/.test(item.text);
+        });
+
+        if (oddsNodes.length >= 2) {
+          // Find the odds that's different from our selected odds
+          for (const item of oddsNodes) {
+            const match = item.text.match(/^\s*(\d+\.\d+)\s*$/);
+            if (match && match[1] !== odds) {
+              otherTeamOdds = match[1];
+              console.log(`Found opponent odds ${otherTeamOdds} from text node scan`);
+              break;
+            }
+          }
         }
       }
     }
-    
-    console.log(`Opponent team: ${otherTeamName}, odds: ${otherTeamOdds}`);
+
+    // Ensure odds are valid numbers
+    let selectedOddsValue = parseFloat(odds);
+    let otherOddsValue = parseFloat(otherTeamOdds);
+
+    // Handle invalid odds values
+    if (isNaN(selectedOddsValue)) {
+      console.warn(`Invalid selected odds value: ${odds}, using default 1.5`);
+      selectedOddsValue = 1.5;
+      odds = '1.5';
+    }
+
+    if (isNaN(otherOddsValue)) {
+      console.warn(`Invalid opponent odds value: ${otherTeamOdds}, using default 2.5`);
+      otherOddsValue = 2.5;
+      otherTeamOdds = '2.5';
+    }
 
     // Determine if this selection is a favorite based on odds
     // Lower odds = favorite, higher odds = underdog
-    const selectedOddsValue = parseFloat(odds);
-    const otherOddsValue = parseFloat(otherTeamOdds);
-    
-    // Make sure odds are valid numbers
-    const isFavorite = !isNaN(selectedOddsValue) && !isNaN(otherOddsValue) ? 
-                       selectedOddsValue < otherOddsValue : false;
-    
+    const isFavorite = selectedOddsValue < otherOddsValue;
+
     console.log(`Is favorite: ${isFavorite}`);
-    
+
     const matchData = {
       matchId,
       tournament,
@@ -653,7 +812,7 @@ function extractMatchData(matchContainer, selectedButton) {
       isLive,
       timestamp: Date.now()
     };
-    
+
     console.log('Extracted match data:', matchData);
     return matchData;
   } catch (error) {
@@ -682,8 +841,8 @@ async function saveMatchData(matchData, updateGlobalArray = true) {
     // Check if we should update the global selectedMatches array
     if (updateGlobalArray) {
       // Add or update the match data in the global array
-      const existingIndex = selectedMatches.findIndex(match => 
-        match.matchId === matchData.matchId && 
+      const existingIndex = selectedMatches.findIndex(match =>
+        match.matchId === matchData.matchId &&
         match.selectedTeam === matchData.selectedTeam
       );
 
@@ -715,33 +874,33 @@ async function handleMatchDeselection(matchId, button) {
   try {
     // Check if matches are confirmed from storage
     const isConfirmed = await chrome.storage.local.get(['isMatchesConfirmed', 'confirmedMatches']);
-    
+
     // If matches are confirmed, don't allow deselection to affect our stored matches
     if (isConfirmed.isMatchesConfirmed && isConfirmed.confirmedMatches && isConfirmed.confirmedMatches.length > 0) {
       console.log(`Match ${matchId} deselected, but matches are confirmed so ignoring deselection`);
       // Don't update anything - the confirmed matches are locked
       return;
     }
-    
+
     // If matches are not confirmed, proceed with normal deselection
     // Find the match with this ID and button
     const index = selectedMatches.findIndex(match => match.matchId === matchId);
-    
+
     if (index >= 0) {
       // We don't remove this match from the global array - only update the background script
       // Create a copy without the deselected match
       const updatedMatches = [...selectedMatches];
       updatedMatches.splice(index, 1);
-      
+
       // Send the updated matches to the background script
       chrome.runtime.sendMessage({
         action: 'matchesUpdated',
         matches: updatedMatches
       });
-      
+
       // DON'T update the global selectedMatches - we keep them for auto-betting reference
       // Only clear selectedMatches when explicitly asked with clearSelections function
-      
+
       console.log(`Match ${matchId} deselected (kept in memory for auto-betting)`);
     }
   } catch (error) {
@@ -755,22 +914,22 @@ function performBotAction() {
     console.log('Bot is not running');
     return;
   }
-  
 
-  
+
+
   // Instead of auto-selecting matches, we'll just monitor for price changes
   // and other relevant information from the page
-  
+
   // Check for any price changes on the page
   const priceButtons = document.querySelectorAll('.price-button');
   priceButtons.forEach(button => {
     // You could add code here to monitor for price changes
     // For example, store the current odds and check if they change
   });
-  
+
   // Optional: Gather stats or other information from the page
   const matchContainers = document.querySelectorAll('.flex-col.rounded-md');
-  
+
   // Note: We've removed automatic selection of matches
   // This was causing unwanted behavior when the bot was running
 }
@@ -781,11 +940,11 @@ function waitForElement(selector, timeout = 5000) {
     const startTime = Date.now();
     let retryCount = 0;
     const maxRetries = 3;
-    
+
     const checkElement = () => {
       // Try to find the element with querySelector
       let element;
-      
+
       // If selector contains multiple selectors (comma-separated), try each one
       if (selector.includes(',')) {
         const selectors = selector.split(',').map(s => s.trim());
@@ -807,7 +966,7 @@ function waitForElement(selector, timeout = 5000) {
           } else {
             element = document.querySelector(singleSelector);
           }
-          
+
           if (element) {
             console.log(`Found element with selector: ${singleSelector}`);
             break;
@@ -830,37 +989,37 @@ function waitForElement(selector, timeout = 5000) {
       } else {
         element = document.querySelector(selector);
       }
-      
+
       if (element) {
         resolve(element);
         return;
       }
-      
+
       const elapsedTime = Date.now() - startTime;
-      
+
       if (elapsedTime > timeout) {
         // If we've exceeded maximum retries, reject with error
         if (retryCount >= maxRetries) {
           reject(new Error(`Timeout waiting for element: ${selector}`));
           return;
         }
-        
+
         // Otherwise, try a different approach - scroll and retry
         retryCount++;
         console.log(`Retry ${retryCount}/${maxRetries} - scrolling and trying again`);
-        
+
         // Scroll down to potentially load more content
         window.scrollBy(0, 500);
-        
+
         // Retry with extended timeout
         setTimeout(checkElement, 1000);
         return;
       }
-      
+
       // Check again after a short delay
       setTimeout(checkElement, 250);
     };
-    
+
     // Start checking immediately
     checkElement();
   });
@@ -875,31 +1034,37 @@ async function sleep(ms) {
 async function handleMatchReselection(matchIds, playerSelections = []) {
   try {
     console.log(`Reselecting ${matchIds.length} matches with specific players`);
-    
+    console.log('Match IDs to reselect:', matchIds);
+    console.log('Player selections:', JSON.stringify(playerSelections));
+
     // Initial wait before starting
     await sleep(1000);
-    
+
     // Find the matches on the page
     const matchElements = await findMatchesByIds(matchIds);
-    
+
     if (!matchElements || Object.keys(matchElements).length === 0) {
       throw new Error('No match elements found for the provided IDs');
     }
-    
+
     console.log(`Found ${Object.keys(matchElements).length} match elements on the page`);
-    
+    console.log('Match elements found:', Object.keys(matchElements));
+
     // Wait for DOM to be ready after search
     await sleep(1000);
-    
+
     // Create a map of player selections by matchId for easy lookup
     const selectionMap = {};
     if (playerSelections && playerSelections.length > 0) {
       playerSelections.forEach(selection => {
         selectionMap[selection.matchId] = selection.selectedTeam;
       });
-      console.log('Using provided player selections:', selectionMap);
+      console.log('Using provided player selections map:', selectionMap);
+
+      // Log the current state of selectedMatches before reselection
+      console.log('Current selectedMatches array before reselection:', JSON.stringify(selectedMatches));
     }
-    
+
     // Select the specified player for each match with a delay between selections
     let successCount = 0;
     for (const matchId of matchIds) {
@@ -907,25 +1072,106 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
       if (matchElement) {
         // Wait between each match selection to avoid overwhelming the UI
         await sleep(1500);
-        
+
         // If we have a specific selection for this match, use it
         // otherwise fall back to selecting the opposite player
         const targetTeam = selectionMap[matchId];
-        
+
+        console.log(`Processing match ${matchId}:`);
+        console.log(`- Target team to select: ${targetTeam || 'No specific team (will select opposite)'}`);
+
         if (targetTeam) {
+          console.log(`- Selecting specific player: ${targetTeam}`);
           const success = await selectSpecificPlayer(matchElement, matchId, targetTeam);
+          console.log(`- Selection ${success ? 'successful' : 'failed'}`);
           if (success) successCount++;
         } else {
+          console.log(`- Selecting opposite player`);
           const success = await selectOppositePlayer(matchElement, matchId);
+          console.log(`- Selection ${success ? 'successful' : 'failed'}`);
           if (success) successCount++;
         }
+      } else {
+        console.error(`Match element not found for match ID: ${matchId}`);
       }
     }
-    
+
     // Wait after all selections are complete
     await sleep(2000);
-    
-    return { success: true, matchCount: Object.keys(matchElements).length, successCount };
+
+    // Verify that all requested selections were made correctly
+    let allSelectionsCorrect = true;
+    const selectionVerification = {};
+
+    // Create a map of the current selections by matchId
+    const currentSelectionsByMatchId = {};
+    selectedMatches.forEach(match => {
+      currentSelectionsByMatchId[match.matchId] = match.selectedTeam;
+    });
+
+    // Check each requested selection against what we actually have
+    if (playerSelections && playerSelections.length > 0) {
+      playerSelections.forEach(selection => {
+        const matchId = selection.matchId;
+        const requestedTeam = selection.selectedTeam;
+        const actualTeam = currentSelectionsByMatchId[matchId];
+
+        if (!actualTeam) {
+          console.error(`VERIFICATION FAILED: Match ${matchId} was not selected at all`);
+          selectionVerification[matchId] = {
+            requested: requestedTeam,
+            actual: null,
+            correct: false
+          };
+          allSelectionsCorrect = false;
+        } else if (actualTeam !== requestedTeam) {
+          console.error(`VERIFICATION FAILED: Match ${matchId} has wrong selection. Requested: ${requestedTeam}, Actual: ${actualTeam}`);
+          selectionVerification[matchId] = {
+            requested: requestedTeam,
+            actual: actualTeam,
+            correct: false
+          };
+          allSelectionsCorrect = false;
+        } else {
+          console.log(`VERIFICATION PASSED: Match ${matchId} correctly selected ${requestedTeam}`);
+          selectionVerification[matchId] = {
+            requested: requestedTeam,
+            actual: actualTeam,
+            correct: true
+          };
+        }
+      });
+    }
+
+    // Log the verification results
+    console.log('\n=== SELECTION VERIFICATION RESULTS ===');
+    console.log(`All selections correct: ${allSelectionsCorrect}`);
+    console.log('Verification details:', selectionVerification);
+
+    // Log the final state of selectedMatches after all selections
+    console.log('\n=== FINAL STATE AFTER ALL SELECTIONS ===');
+    console.log(`Final selectedMatches array has ${selectedMatches.length} matches:`);
+    selectedMatches.forEach((match, index) => {
+      console.log(`Match ${index + 1}: ${match.team1} vs ${match.team2}`);
+      console.log(`  - Selected: ${match.selectedTeam} (Odds: ${match.odds})`);
+      console.log(`  - Type: ${match.isFavorite ? 'FAVORITE' : 'UNDERDOG'}`);
+      console.log(`  - Match ID: ${match.matchId}`);
+    });
+    console.log('=== END OF FINAL STATE ===\n');
+
+    // Send one final update to the background script with the complete selectedMatches array
+    chrome.runtime.sendMessage({
+      action: 'matchesUpdated',
+      matches: selectedMatches
+    });
+
+    return {
+      success: true,
+      matchCount: Object.keys(matchElements).length,
+      successCount,
+      allSelectionsCorrect,
+      verificationDetails: selectionVerification
+    };
   } catch (error) {
     console.error('Error reselecting matches:', error);
     throw error;
@@ -937,123 +1183,279 @@ async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
   try {
     // Wait briefly before starting the selection process
     await sleep(500);
-    
+
+    console.log(`Selecting player "${targetTeam}" for match ${matchId}`);
+
     // Get all price buttons in this match container with data-market-id attribute
     const priceButtons = matchElement.querySelectorAll(`button[data-market-id="${matchId}"]`);
-    
+
     console.log(`Found ${priceButtons.length} price buttons with data-market-id="${matchId}"`);
-    
+
     // If no specific buttons found, try getting all price buttons in the container
     let allPriceButtons = priceButtons;
     if (priceButtons.length === 0) {
       allPriceButtons = matchElement.querySelectorAll('.price-button, [data-testid^="price-button-"]');
       console.log(`Found ${allPriceButtons.length} price buttons without specific data-market-id`);
     }
-    
+
     // Find the button for the specific team
     let targetButton = null;
-    
-    for (const button of allPriceButtons) {
-      // First look for displayTitle spans
-      const displayTitleElement = button.querySelector('span.displayTitle');
-      if (displayTitleElement) {
-        const buttonName = displayTitleElement.textContent.trim();
-        if (buttonName === targetTeam) {
-          targetButton = button;
-          console.log(`Found target button with displayTitle "${buttonName}"`);
-          break;
-        }
+    let bestMatchScore = 0;
+    let bestMatchButton = null;
+    let allButtonNames = [];
+
+    // Helper function to normalize text for comparison
+    const normalizeText = (text) => {
+      return text.toLowerCase().replace(/\s+/g, ' ').trim();
+    };
+
+    // Helper function to calculate string similarity (0-1 score)
+    const calculateSimilarity = (str1, str2) => {
+      const s1 = normalizeText(str1);
+      const s2 = normalizeText(str2);
+
+      // Exact match
+      if (s1 === s2) return 1;
+
+      // One string contains the other
+      if (s1.includes(s2) || s2.includes(s1)) {
+        return 0.9;
       }
-      
-      // If no displayTitle, try other elements like price-button-name
-      if (!targetButton) {
-        const buttonNameElement = button.querySelector('[data-testid="price-button-name"], .price-button-name');
-        if (buttonNameElement) {
-          const buttonName = buttonNameElement.textContent.trim();
-          if (buttonName === targetTeam) {
-            targetButton = button;
-            console.log(`Found target button with price-button-name "${buttonName}"`);
+
+      // Calculate word overlap
+      const words1 = s1.split(' ');
+      const words2 = s2.split(' ');
+      let matchCount = 0;
+
+      for (const word1 of words1) {
+        if (word1.length < 3) continue; // Skip very short words
+        for (const word2 of words2) {
+          if (word2.length < 3) continue; // Skip very short words
+          if (word1 === word2 || word1.includes(word2) || word2.includes(word1)) {
+            matchCount++;
             break;
           }
         }
       }
+
+      return matchCount / Math.max(words1.length, words2.length);
+    };
+
+    for (const button of allPriceButtons) {
+      // First look for displayTitle spans
+      const displayTitleElement = button.querySelector('span.displayTitle');
+      let buttonName = '';
+
+      if (displayTitleElement) {
+        buttonName = displayTitleElement.textContent.trim();
+        allButtonNames.push(buttonName);
+
+        const similarity = calculateSimilarity(buttonName, targetTeam);
+        console.log(`Button name: "${buttonName}", similarity to target "${targetTeam}": ${similarity.toFixed(2)}`);
+
+        if (similarity === 1) {
+          // Exact match, use this button
+          targetButton = button;
+          console.log(`Found exact match button with displayTitle "${buttonName}"`);
+          break;
+        } else if (similarity > bestMatchScore) {
+          bestMatchScore = similarity;
+          bestMatchButton = button;
+        }
+      }
+
+      // If no displayTitle, try other elements like price-button-name
+      if (!targetButton) {
+        const buttonNameElement = button.querySelector('[data-testid="price-button-name"], .price-button-name');
+        if (buttonNameElement) {
+          buttonName = buttonNameElement.textContent.trim();
+          allButtonNames.push(buttonName);
+
+          const similarity = calculateSimilarity(buttonName, targetTeam);
+          console.log(`Button name: "${buttonName}", similarity to target "${targetTeam}": ${similarity.toFixed(2)}`);
+
+          if (similarity === 1) {
+            // Exact match, use this button
+            targetButton = button;
+            console.log(`Found exact match button with price-button-name "${buttonName}"`);
+            break;
+          } else if (similarity > bestMatchScore) {
+            bestMatchScore = similarity;
+            bestMatchButton = button;
+          }
+        }
+      }
+
+      // Also check the full button text as a fallback
+      if (!targetButton) {
+        buttonName = button.textContent.trim();
+        // Clean up the button text to remove odds and other non-name text
+        buttonName = buttonName.replace(/\d+\.\d+|\+|\-|\s*win\s*|\s*to win\s*/gi, '').trim();
+
+        if (buttonName && !allButtonNames.includes(buttonName)) {
+          allButtonNames.push(buttonName);
+
+          const similarity = calculateSimilarity(buttonName, targetTeam);
+          console.log(`Button text: "${buttonName}", similarity to target "${targetTeam}": ${similarity.toFixed(2)}`);
+
+          if (similarity === 1) {
+            // Exact match, use this button
+            targetButton = button;
+            console.log(`Found exact match in button text "${buttonName}"`);
+            break;
+          } else if (similarity > bestMatchScore) {
+            bestMatchScore = similarity;
+            bestMatchButton = button;
+          }
+        }
+      }
     }
-    
+
+    // If no exact match found, use the best match if it's good enough
+    if (!targetButton && bestMatchScore >= 0.7) {
+      targetButton = bestMatchButton;
+      console.log(`Using best match button with score ${bestMatchScore.toFixed(2)} for team ${targetTeam}`);
+    }
+
     if (!targetButton) {
       console.error(`No button found for team ${targetTeam} in match ${matchId}`);
+      console.error(`Available button names: ${allButtonNames.join(', ')}`);
       return false;
     }
-    
+
+    // Get the actual name from the selected button for verification
+    let selectedButtonName = '';
+    const displayTitleElement = targetButton.querySelector('span.displayTitle');
+    if (displayTitleElement) {
+      selectedButtonName = displayTitleElement.textContent.trim();
+    } else {
+      const buttonNameElement = targetButton.querySelector('[data-testid="price-button-name"], .price-button-name');
+      if (buttonNameElement) {
+        selectedButtonName = buttonNameElement.textContent.trim();
+      } else {
+        selectedButtonName = targetButton.textContent.trim();
+        selectedButtonName = selectedButtonName.replace(/\d+\.\d+|\+|\-|\s*win\s*|\s*to win\s*/gi, '').trim();
+      }
+    }
+
+    console.log(`Selected button with name "${selectedButtonName}" for target "${targetTeam}"`);
+
     // Log the odds for the selected team
     const oddsElement = targetButton.querySelector('[data-testid="price-button-odds"]');
     if (oddsElement) {
       const odds = oddsElement.textContent.trim();
-      console.log(`Selected ${targetTeam} with odds: ${odds}`);
+      console.log(`Selected ${selectedButtonName} with odds: ${odds}`);
     }
-    
+
     // Wait before clicking to ensure UI is stable
     await sleep(800);
-    
+
     // Click the target button
     targetButton.click();
-    console.log(`Clicked button for team ${targetTeam}`);
-    
+    console.log(`Clicked button for team ${selectedButtonName}`);
+
     // Wait for the UI to update after click
     await sleep(1000);
-    
+
+    // Find the match container again after clicking to ensure we have the updated DOM
+    const updatedMatchContainer = findMatchContainer(targetButton);
+    if (updatedMatchContainer) {
+      // Extract the updated match data to ensure we have the correct selection
+      const matchData = extractMatchData(updatedMatchContainer, targetButton);
+      if (matchData) {
+        // IMPORTANT: Always use the target team name from the background script
+        // This ensures consistency between what the background script expects and what we store
+        console.log(`Original extracted selectedTeam: ${matchData.selectedTeam}, forcing to target: ${targetTeam}`);
+        matchData.selectedTeam = targetTeam;
+
+        // Also update other fields that depend on the selected team
+        if (matchData.team1 === targetTeam || matchData.team1 === selectedButtonName) {
+          matchData.opponentTeam = matchData.team2;
+        } else {
+          matchData.opponentTeam = matchData.team1;
+        }
+
+        // Update the global selectedMatches array with this selection
+        // This ensures the background script gets the updated selection
+        const existingIndex = selectedMatches.findIndex(match => match.matchId === matchId);
+        if (existingIndex >= 0) {
+          // Replace the existing match data
+          selectedMatches[existingIndex] = matchData;
+          console.log(`Replaced existing match data in selectedMatches for ${matchId}`);
+        } else {
+          // Add new match data
+          selectedMatches.push(matchData);
+          console.log(`Added new match data to selectedMatches for ${matchId}`);
+        }
+
+        // Send the updated matches to the background script
+        chrome.runtime.sendMessage({
+          action: 'matchesUpdated',
+          matches: selectedMatches
+        });
+
+        console.log(`Updated selectedMatches array with new selection: ${matchData.selectedTeam}`);
+        console.log(`Current selectedMatches array now has ${selectedMatches.length} matches`);
+      } else {
+        console.error(`Failed to extract match data after clicking for ${matchId}`);
+      }
+    } else {
+      console.error(`Failed to find match container after clicking for ${matchId}`);
+    }
+
     // Check for betslip count before clicking
     const betslipCounter = document.querySelector('[data-testid="betslip-counter"], .betslip-counter');
     const initialCount = betslipCounter ? parseInt(betslipCounter.textContent.trim()) || 0 : 0;
-    
+
     // Adding the selection to QuickSlip/BetSlip
     // Try multiple selectors for the "Add to Betslip" button with a shorter timeout
     try {
       const quickSlipSelectors = [
         '[data-testid="qb-add-to-betslip"]',
       ];
-      
+
       // Try to find and click the QuickSlip button - increased timeout to give more time for rendering
       const quickSlipAddButton = await waitForElement(quickSlipSelectors.join(', '), 1500);
-      
+
       // Wait briefly before clicking the QuickSlip button
       await sleep(500);
-      
+
       quickSlipAddButton.click();
       console.log(`Added ${targetTeam} for match ${matchId} to betslip via explicit button click`);
-      
+
       // Wait for betslip to update
       await sleep(1000);
     } catch (quickSlipError) {
       console.log(`QuickSlip button not found: ${quickSlipError.message}`);
-      
+
       // Wait for possible automatic addition to betslip
       await sleep(1500);
-      
+
       // Check if the betslip count has changed
       const newCount = betslipCounter ? parseInt(betslipCounter.textContent.trim()) || 0 : 0;
       if (newCount > initialCount) {
         console.log(`Selection appears to have been added automatically (betslip count changed from ${initialCount} to ${newCount})`);
       } else {
         console.log(`No change in betslip count (${initialCount}), but assuming selection was added`);
-        
+
         // As a last resort, try to click any dialog buttons that might be present
         try {
           // Wait before looking for confirm buttons
           await sleep(500);
-          
+
           // Use standard selectors without :contains
           const standardButtons = document.querySelectorAll('.confirm-button, [data-testid="confirm-button"]');
-          
+
           // Also check for buttons with specific text
           const allButtons = document.querySelectorAll('button');
           const textButtons = Array.from(allButtons).filter(button => {
             const text = button.textContent.trim();
             return text === 'OK' || text === 'Confirm' || text.includes('Confirm') || text.includes('OK');
           });
-          
+
           // Combine both sets of buttons
           const confirmButtons = [...Array.from(standardButtons), ...textButtons];
-          
+
           if (confirmButtons.length > 0) {
             console.log(`Found ${confirmButtons.length} confirm buttons, clicking the first one`);
             await sleep(300);
@@ -1065,10 +1467,10 @@ async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
         }
       }
     }
-    
+
     // Final wait to ensure all UI updates are complete
     await sleep(1000);
-    
+
     return true;
   } catch (error) {
     console.error(`Error selecting specific player for match ${matchId}:`, error);
@@ -1081,39 +1483,73 @@ async function selectOppositePlayer(matchElement, matchId) {
   try {
     // Wait briefly before starting the selection process
     await sleep(500);
-    
+
     // Get all price buttons in this match container
     const priceButtons = matchElement.querySelectorAll('.price-button');
-    
+
     // Find the button that's currently NOT selected
     let oppositeButton = null;
-    
+
     for (const button of priceButtons) {
       if (!button.classList.contains('selected')) {
         oppositeButton = button;
         break;
       }
     }
-    
+
     if (!oppositeButton) {
       console.error(`No opposite button found for match ${matchId}`);
       return false;
     }
-    
+
     // Wait before clicking to ensure UI is stable
     await sleep(800);
-    
+
     // Click the opposite button
     oppositeButton.click();
     console.log(`Clicked opposite button for match ${matchId}`);
-    
+
     // Wait for the UI to update after click
     await sleep(1000);
-    
+
+    // Find the match container again after clicking to ensure we have the updated DOM
+    const updatedMatchContainer = findMatchContainer(oppositeButton);
+    if (updatedMatchContainer) {
+      // Extract the updated match data to ensure we have the correct selection
+      const matchData = extractMatchData(updatedMatchContainer, oppositeButton);
+      if (matchData) {
+        // Update the global selectedMatches array with this selection
+        // This ensures the background script gets the updated selection
+        const existingIndex = selectedMatches.findIndex(match => match.matchId === matchId);
+        if (existingIndex >= 0) {
+          // Replace the existing match data
+          selectedMatches[existingIndex] = matchData;
+          console.log(`Replaced existing match data in selectedMatches for ${matchId}`);
+        } else {
+          // Add new match data
+          selectedMatches.push(matchData);
+          console.log(`Added new match data to selectedMatches for ${matchId}`);
+        }
+
+        // Send the updated matches to the background script
+        chrome.runtime.sendMessage({
+          action: 'matchesUpdated',
+          matches: selectedMatches
+        });
+
+        console.log(`Updated selectedMatches array with new selection: ${matchData.selectedTeam}`);
+        console.log(`Current selectedMatches array now has ${selectedMatches.length} matches`);
+      } else {
+        console.error(`Failed to extract match data after clicking for ${matchId}`);
+      }
+    } else {
+      console.error(`Failed to find match container after clicking for ${matchId}`);
+    }
+
     // Check for betslip count before clicking
     const betslipCounter = document.querySelector('[data-testid="betslip-counter"], .betslip-counter');
     const initialCount = betslipCounter ? parseInt(betslipCounter.textContent.trim()) || 0 : 0;
-    
+
     // Adding the selection to QuickSlip/BetSlip
     // Try multiple selectors for the "Add to Betslip" button with a shorter timeout
     try {
@@ -1125,49 +1561,49 @@ async function selectOppositePlayer(matchElement, matchId) {
         'button:contains("Add Selection")',
         '.add-selection-button'
       ];
-      
+
       // Try to find and click the QuickSlip button - increased timeout to give more time for rendering
       const quickSlipAddButton = await waitForElement(quickSlipSelectors.join(', '), 1500);
-      
+
       // Wait briefly before clicking the QuickSlip button
       await sleep(500);
-      
+
       quickSlipAddButton.click();
       console.log(`Added opposite player for match ${matchId} to betslip via explicit button click`);
-      
+
       // Wait for betslip to update
       await sleep(1000);
     } catch (quickSlipError) {
       console.log(`QuickSlip button not found: ${quickSlipError.message}`);
-      
+
       // Wait for possible automatic addition to betslip
       await sleep(1500);
-      
+
       // Check if the betslip count has changed
       const newCount = betslipCounter ? parseInt(betslipCounter.textContent.trim()) || 0 : 0;
       if (newCount > initialCount) {
         console.log(`Selection appears to have been added automatically (betslip count changed from ${initialCount} to ${newCount})`);
       } else {
         console.log(`No change in betslip count (${initialCount}), but assuming selection was added`);
-        
+
         // As a last resort, try to click any dialog buttons that might be present
         try {
           // Wait before looking for confirm buttons
           await sleep(500);
-          
+
           // Use standard selectors without :contains
           const standardButtons = document.querySelectorAll('.confirm-button, [data-testid="confirm-button"]');
-          
+
           // Also check for buttons with specific text
           const allButtons = document.querySelectorAll('button');
           const textButtons = Array.from(allButtons).filter(button => {
             const text = button.textContent.trim();
             return text === 'OK' || text === 'Confirm' || text.includes('Confirm') || text.includes('OK');
           });
-          
+
           // Combine both sets of buttons
           const confirmButtons = [...Array.from(standardButtons), ...textButtons];
-          
+
           if (confirmButtons.length > 0) {
             console.log(`Found ${confirmButtons.length} confirm buttons, clicking the first one`);
             await sleep(300);
@@ -1179,10 +1615,10 @@ async function selectOppositePlayer(matchElement, matchId) {
         }
       }
     }
-    
+
     // Final wait to ensure all UI updates are complete
     await sleep(1000);
-    
+
     return true;
   } catch (error) {
     console.error(`Error selecting opposite player for match ${matchId}:`, error);
@@ -1195,32 +1631,32 @@ async function clearSelections() {
   try {
     // Only clear the UI betslip - not our stored data in selectedMatches
     const isAutoBetting = document.documentElement.hasAttribute('data-auto-betting-in-progress');
-    
+
     console.log(`Clearing betslip selections (Auto-betting: ${isAutoBetting})`);
-    
+
     // Check if matches are confirmed from storage
     const result = await chrome.storage.local.get(['isMatchesConfirmed', 'confirmedMatches']);
     const isMatchesConfirmed = result.isMatchesConfirmed && result.confirmedMatches && result.confirmedMatches.length > 0;
-    
+
     if (isMatchesConfirmed) {
       console.log('Matches are confirmed - will clear UI but keep confirmed matches in memory');
     }
-    
+
     // Wait before starting the clear process
     await sleep(1000);
-    
+
     // Try to open the bet slip first in case it's collapsed
     const betSlipToggle = document.querySelector('[data-testid="betslip-toggle"]');
     if (betSlipToggle) {
       betSlipToggle.click();
       await sleep(1500);
     }
-    
+
     // Try to find the bet slip
     const betSlipContainer = document.querySelector('#betslip-container');
     if (!betSlipContainer) {
       console.log('Bet slip container not found - trying alternative selectors');
-      
+
       // Try alternative selectors
       const alternativeSelectors = [
         '.betslip-container',
@@ -1228,7 +1664,7 @@ async function clearSelections() {
         '#bet-slip',
         '.bet-slip-container'
       ];
-      
+
       for (const selector of alternativeSelectors) {
         const container = document.querySelector(selector);
         if (container) {
@@ -1237,37 +1673,37 @@ async function clearSelections() {
           break;
         }
       }
-      
+
       // If still not found, try a broader approach
       if (!betSlipContainer) {
         const allButtons = document.querySelectorAll('button');
         for (const button of allButtons) {
-          if (button.textContent.includes('Remove All') || 
+          if (button.textContent.includes('Remove All') ||
               button.textContent.includes('Clear All') ||
               button.getAttribute('data-testid') === 'remove-all') {
             console.log('Found clear all button directly');
             await sleep(500);
             button.click();
             await sleep(1500);
-            
+
             // If matches are confirmed, we're done - no memory clearing needed
             if (isMatchesConfirmed) {
               console.log('UI cleared but keeping confirmed matches in memory');
               return;
             }
-            
+
             // Otherwise continue to memory clearing below
             break;
           }
         }
       }
-      
+
       // If we still can't find it, we'll continue with whatever we found
       if (!betSlipContainer) {
         console.log('Could not find bet slip container using any selector');
       }
     }
-    
+
     // If we found the bet slip, process it
     if (betSlipContainer) {
       // First try to find a "Clear All" button
@@ -1277,7 +1713,7 @@ async function clearSelections() {
         clearAllButton.click();
         await sleep(1500);
         console.log('Cleared all selections at once using Clear All button');
-        
+
         // If matches are confirmed, we're done - no memory clearing needed
         if (isMatchesConfirmed) {
           console.log('UI cleared but keeping confirmed matches in memory');
@@ -1286,14 +1722,14 @@ async function clearSelections() {
       } else {
         // If no Clear All button, find individual remove buttons
         const removeButtons = betSlipContainer.querySelectorAll('[data-testid="remove-item"]');
-        
+
         if (removeButtons.length === 0) {
           console.log('No selections to clear');
           return;
         }
-        
+
         console.log(`Clearing ${removeButtons.length} selections one by one`);
-        
+
         // Click each remove button with a small delay between clicks
         for (const button of removeButtons) {
           await sleep(500); // More time between each button click
@@ -1302,27 +1738,27 @@ async function clearSelections() {
         }
       }
     }
-    
+
     // If matches are confirmed, don't clear memory even for manual actions
     if (isMatchesConfirmed) {
       console.log('UI cleared but keeping confirmed matches in memory');
       return;
     }
-    
+
     // Important: If this is an auto-betting operation, we DON'T clear the selectedMatches
     // We only clear selectedMatches if this was a manual user action
     if (!isAutoBetting) {
       // User manually cleared, so update global array
       selectedMatches = [];
-      
+
       // Update storage
       await chrome.storage.local.set({ selectedMatches: [] });
-      
+
       console.log('All selections cleared from UI and memory (manual clear)');
     } else {
       console.log('All selections cleared from UI only (kept in memory for auto-betting)');
     }
-    
+
     // Final wait to ensure betslip is fully cleared
     await sleep(1000);
   } catch (error) {
@@ -1336,26 +1772,26 @@ async function waitForBetSlip() {
   try {
     // Initial wait before trying to access betslip
     await sleep(1000);
-    
+
     // Try to open the bet slip if it's collapsed
     const betSlipToggle = document.querySelector('[data-testid="betslip-toggle"]');
     if (betSlipToggle) {
       betSlipToggle.click();
       await sleep(1500);
     }
-    
+
     // Wait for the bet slip container with increased timeout
     const betSlipContainer = await waitForElement('#betslip-container', 8000);
-    
+
     // Wait for the betslip to fully load
     await sleep(1000);
-    
+
     // Check if there are any selections
     const betSlipItems = betSlipContainer.querySelectorAll('[data-testid="betslip-single-item"], [data-testid="betslip-multi-item"]');
     if (betSlipItems.length === 0) {
       throw new Error('No items in bet slip');
     }
-    
+
     return betSlipContainer;
   } catch (error) {
     console.error('Error waiting for bet slip:', error);
@@ -1367,29 +1803,29 @@ async function waitForBetSlip() {
 async function navigateToMultiBet() {
   try {
     const betSlipContainer = await waitForBetSlip();
-    
+
     // Wait to ensure betslip is fully loaded
     await sleep(1000);
-    
+
     // Check if MultiBet section already exists
     const multiBetContainer = betSlipContainer.querySelector('[data-testid="betslip-multis-container"]');
     if (!multiBetContainer) {
       throw new Error('MultiBet section not found in bet slip');
     }
-    
+
     // Make sure the MultiBet section is visible (it may be collapsed)
     const multiBetTitle = multiBetContainer.querySelector('[data-testid="betslip-multis-container-title"]');
     if (multiBetTitle && !multiBetTitle.parentElement.parentElement.querySelector('[data-testid="betslip-multi-item"]')) {
       // Wait before clicking to expand
       await sleep(500);
-      
+
       // Click the title to expand the section
       multiBetTitle.click();
-      
+
       // Wait for section to expand
       await sleep(1500);
     }
-    
+
     return true;
   } catch (error) {
     console.error('Error navigating to MultiBet section:', error);
@@ -1402,13 +1838,13 @@ async function enterStakeAmount(amount) {
   try {
     // Initial wait to ensure UI is ready
     await sleep(1000);
-    
+
     // Find the MultiBet section
     const multiBetContainer = document.querySelector('[data-testid="betslip-multis-container"]');
     if (!multiBetContainer) {
       throw new Error('MultiBet section not found');
     }
-    
+
     // Find the stake input field in the MultiBet section
     // Look for different possible input selectors in the MultiBet section
     const inputSelectors = [
@@ -1417,9 +1853,9 @@ async function enterStakeAmount(amount) {
       'input[placeholder="0.00"]',
       'input[min="0"]'
     ];
-    
+
     let stakeInput = null;
-    
+
     // Try each selector
     for (const selector of inputSelectors) {
       // Look specifically in the main MultiBet container first (not in the alternative combinations section)
@@ -1432,10 +1868,10 @@ async function enterStakeAmount(amount) {
           break;
         }
       }
-      
+
       if (stakeInput) break;
     }
-    
+
     // If not found, try one more approach - the first editable input in the MultiBet section
     if (!stakeInput) {
       const inputs = multiBetContainer.querySelectorAll('input[data-testid="input-bet-value"]');
@@ -1447,25 +1883,25 @@ async function enterStakeAmount(amount) {
         }
       }
     }
-    
+
     if (!stakeInput) {
       throw new Error('Stake input field not found in MultiBet section');
     }
-    
+
     // Clear any existing value
     stakeInput.value = '';
-    
+
     // Focus the input
     stakeInput.focus();
-    
+
     // Use both direct setting and simulated typing
     // First, set the value directly
     stakeInput.value = amount;
-    
+
     // Then trigger input and change events to ensure the UI updates
     stakeInput.dispatchEvent(new Event('input', { bubbles: true }));
     stakeInput.dispatchEvent(new Event('change', { bubbles: true }));
-    
+
     // If there's a numeric keypad visible, try using it to enter the amount
     const keypadContainer = document.querySelector('#betslip-mobile-keyboard-container');
     if (keypadContainer) {
@@ -1480,20 +1916,20 @@ async function enterStakeAmount(amount) {
         }
         await sleep(100);
       }
-      
+
       // Click 'Done' if present
       const doneButton = keypadContainer.querySelector('[data-testid="qb-values-done"]');
       if (doneButton) doneButton.click();
     }
-    
+
     // Wait a moment to ensure the amount is properly entered
     await sleep(1000);
-    
+
     // Verify the value was entered
     if (stakeInput.value !== amount && stakeInput.value !== `$${amount}`) {
       console.warn(`Stake amount verification failed: expected ${amount}, got ${stakeInput.value}`);
     }
-    
+
     console.log(`Entered stake amount: ${amount}`);
     return true;
   } catch (error) {
@@ -1506,39 +1942,39 @@ async function enterStakeAmount(amount) {
 async function clickPlaceBets() {
   try {
     console.log('Attempting to place bets...');
-    
+
     // Wait for the UI to be fully ready
     await sleep(1500);
-    
+
     // Array of possible Place Bets button selectors from most specific to most general
     const placeBetsButtonSelectors = [
       // Data attribute selectors (most specific)
       '[data-testid="betslip-place-bet"]',
       'button:contains("Place Bets")',
     ];
-    
+
     let placeBetsButton = null;
-    
+
     // Try each selector
     for (const selector of placeBetsButtonSelectors) {
       if (selector.includes(':contains')) {
         // Handle text-based selectors with a different approach
         const buttonText = selector.match(/:contains\("(.+?)"\)/)[1];
         const buttons = Array.from(document.querySelectorAll('button'));
-        placeBetsButton = buttons.find(btn => 
-          btn.textContent && 
+        placeBetsButton = buttons.find(btn =>
+          btn.textContent &&
           btn.textContent.trim().toLowerCase().includes(buttonText.toLowerCase())
         );
       } else {
         placeBetsButton = document.querySelector(selector);
       }
-      
+
       if (placeBetsButton) {
         console.log(`Found Place Bets button with selector: ${selector}`);
         break;
       }
     }
-    
+
     // If still not found, try looking for any button that has "Place" and "Bet" in its text
     if (!placeBetsButton) {
       const allButtons = Array.from(document.querySelectorAll('button'));
@@ -1546,12 +1982,12 @@ async function clickPlaceBets() {
         const text = (btn.textContent || '').toLowerCase();
         return (text.includes('place') && (text.includes('bet') || text.includes('wager')));
       });
-      
+
       if (placeBetsButton) {
         console.log('Found Place Bets button using text content search');
       }
     }
-    
+
     // Last resort: look for submit buttons within bet slip containers
     if (!placeBetsButton) {
       const betSlipContainers = document.querySelectorAll('.betslip, .bet-slip, [data-testid="betslip-container"]');
@@ -1564,39 +2000,39 @@ async function clickPlaceBets() {
         }
       }
     }
-    
+
     if (!placeBetsButton) {
       throw new Error('Place Bets button not found on the page');
     }
-    
+
     // Check if the button is disabled
-    const isDisabled = placeBetsButton.disabled || 
-                      placeBetsButton.getAttribute('disabled') !== null || 
+    const isDisabled = placeBetsButton.disabled ||
+                      placeBetsButton.getAttribute('disabled') !== null ||
                       placeBetsButton.classList.contains('disabled') ||
                       getComputedStyle(placeBetsButton).opacity < 0.5 ||
                       getComputedStyle(placeBetsButton).pointerEvents === 'none';
-    
+
     if (isDisabled) {
       console.warn('Place Bets button is disabled, checking for issues...');
-      
+
       // Check for any error messages in the bet slip
       const errorMessages = document.querySelectorAll(
         '[data-testid="betslip-error-message"], ' +
-        '.error-message, .bet-error, .betting-error, ' + 
+        '.error-message, .bet-error, .betting-error, ' +
         '.validation-error, .betslip-validation'
       );
-      
+
       if (errorMessages.length > 0) {
         const errorTexts = Array.from(errorMessages).map(el => el.textContent).join(', ');
         throw new Error(`Cannot place bets due to errors: ${errorTexts}`);
       }
-      
+
       // Check if minimum stake requirements are met
       const minStakeWarnings = document.querySelectorAll('.min-stake-warning, [data-testid="min-stake-warning"]');
       if (minStakeWarnings.length > 0) {
         throw new Error('Cannot place bets: Minimum stake requirement not met');
       }
-      
+
       // Check if stake amount is missing
       const stakeInputs = document.querySelectorAll('input[data-testid="input-bet-value"], input.stake-input, input[placeholder*="stake"], input.betslip-stake');
       let hasValue = false;
@@ -1607,17 +2043,17 @@ async function clickPlaceBets() {
           break;
         }
       }
-      
+
       if (!hasValue) {
         throw new Error('Cannot place bets: No stake amount entered');
       }
-      
+
       // Check for odds change notifications
       const oddsChangeElements = document.querySelectorAll(
         '[data-testid="odds-change-notification"], ' +
         '.odds-changed, .odds-change-alert'
       );
-      
+
       if (oddsChangeElements.length > 0) {
         console.log('Odds have changed, attempting to handle...');
         const handled = await handleOddsChangeError();
@@ -1626,54 +2062,54 @@ async function clickPlaceBets() {
           return await clickPlaceBets(); // Recursive call after handling odds change
         }
       }
-      
+
       // Check for maximum stake limits
       const maxStakeWarnings = document.querySelectorAll('.max-stake-warning, [data-testid="max-stake-warning"]');
       if (maxStakeWarnings.length > 0) {
         throw new Error('Cannot place bets: Maximum stake limit exceeded');
       }
-      
+
       throw new Error('Place Bets button is disabled for an unknown reason');
     }
-    
+
     // Before clicking, ensure we're scrolled to the button for visibility
     placeBetsButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await sleep(500);
-    
+
     // Click the button
     console.log('Clicking Place Bets button...');
     placeBetsButton.click();
-    
+
     // Wait for potential confirmation dialog or success message
     await sleep(2000);
-    
+
     // Check for confirmation dialog/overlay and handle it if present
     const confirmButtonSelectors = [
       'button[data-testid="betslip-confirm-place-bet"]',
       'button:contains("Confirm")',
 
     ];
-    
+
     let confirmButtonFound = false;
-    
+
     // Try standard selectors first
     for (const selector of confirmButtonSelectors) {
       let confirmButtons;
-      
+
       if (selector.includes(':contains')) {
         const buttonText = selector.match(/:contains\("(.+?)"\)/)[1];
         const buttons = Array.from(document.querySelectorAll('button'));
-        confirmButtons = buttons.filter(btn => 
-          btn.textContent && 
+        confirmButtons = buttons.filter(btn =>
+          btn.textContent &&
           btn.textContent.trim().toLowerCase().includes(buttonText.toLowerCase()) &&
           btn.offsetParent !== null // Ensure button is visible
         );
       } else {
-        confirmButtons = Array.from(document.querySelectorAll(selector)).filter(btn => 
+        confirmButtons = Array.from(document.querySelectorAll(selector)).filter(btn =>
           btn.offsetParent !== null // Ensure button is visible
         );
       }
-      
+
       for (const confirmButton of confirmButtons) {
         console.log('Confirming bet placement...');
         confirmButton.click();
@@ -1681,10 +2117,10 @@ async function clickPlaceBets() {
         await sleep(1500);
         break;
       }
-      
+
       if (confirmButtonFound) break;
     }
-    
+
     // If no confirmation button was found but we see a dialog/modal, look for any primary/action button
     if (!confirmButtonFound) {
       const dialogElements = document.querySelectorAll('.modal, .dialog, .overlay, .popup');
@@ -1701,7 +2137,7 @@ async function clickPlaceBets() {
         }
       }
     }
-    
+
     // Enhanced success verification - Checking multiple indicators
     // 1. Check for bet receipt/confirmation message
     const receiptSelectors = [
@@ -1713,94 +2149,94 @@ async function clickPlaceBets() {
       '.bet-placed-message',
       '.success-message'
     ];
-    
+
     for (const selector of receiptSelectors) {
       const receiptElement = document.querySelector(selector);
       if (receiptElement && receiptElement.offsetParent !== null) { // Check if visible
         console.log(`Bet placed successfully! Receipt found with selector: ${selector}`);
-        
+
         // Send a message indicating successful bet placement
         chrome.runtime.sendMessage({
           action: 'betPlaced',
           success: true
         });
-        
+
         // Look for and click the "Done" button to automatically deselect matches
         await clickDoneButton();
-        
+
         return true;
       }
     }
-    
+
     // 2. Check for success toast/notification
     const successNotifications = document.querySelectorAll(
       '.toast-success, .success-notification, .success-toast, ' +
       '[data-testid="success-notification"], [data-testid="toast-success"]'
     );
-    
+
     if (successNotifications.length > 0) {
       console.log('Bet placed successfully! Success notification found');
       chrome.runtime.sendMessage({
         action: 'betPlaced',
         success: true
       });
-      
+
       // Look for and click the "Done" button to automatically deselect matches
       await clickDoneButton();
-      
+
       return true;
     }
-    
+
     // 3. Check for bet reference/ID which often appears after successful placement
     const betReferenceElements = document.querySelectorAll(
       '[data-testid="bet-reference"], .bet-reference, .bet-id, ' +
       '.reference-number, .transaction-id'
     );
-    
+
     if (betReferenceElements.length > 0) {
       console.log('Bet placed successfully! Bet reference/ID found');
       chrome.runtime.sendMessage({
         action: 'betPlaced',
         success: true
       });
-      
+
       // Look for and click the "Done" button to automatically deselect matches
       await clickDoneButton();
-      
+
       return true;
     }
-    
+
     // Check if there are any errors in the bet slip after placing the bet
     const betSlipErrors = document.querySelectorAll(
       '[data-testid="betslip-error-message"], .bet-error, .error-message, ' +
       '.betting-error, .validation-error'
     );
-    
+
     if (betSlipErrors.length > 0) {
       const errorTexts = Array.from(betSlipErrors).map(el => el.textContent).join(', ');
       throw new Error(`Error after placing bet: ${errorTexts}`);
     }
-    
+
     // Check if the bet slip is now empty (some sites clear the slip after successful bet)
     const emptyBetSlipMessage = document.querySelector(
       '[data-testid="empty-betslip"], .empty-betslip, .no-selections'
     );
-    
+
     if (emptyBetSlipMessage) {
       console.log('Bet likely placed successfully as bet slip is now empty');
       chrome.runtime.sendMessage({
         action: 'betPlaced',
         success: true
       });
-      
+
       // Even with empty betslip, try clicking Done button if it exists
       await clickDoneButton();
-      
+
       return true;
     }
-    
+
     // If we got here without seeing a receipt or errors, check if Place Bet button is still visible
-    if (placeBetsButton.offsetParent === null || 
+    if (placeBetsButton.offsetParent === null ||
         !document.body.contains(placeBetsButton) ||
         getComputedStyle(placeBetsButton).display === 'none') {
       console.log('Place Bets button is no longer visible, bet likely placed successfully');
@@ -1808,13 +2244,13 @@ async function clickPlaceBets() {
         action: 'betPlaced',
         success: true
       });
-      
+
       // Look for and click the "Done" button to automatically deselect matches
       await clickDoneButton();
-      
+
       return true;
     }
-    
+
     // If we got here without any confirmation but also no errors, assume it worked but keep a warning
     console.log('Bet appears to be placed, but no confirmation receipt found');
     chrome.runtime.sendMessage({
@@ -1822,21 +2258,21 @@ async function clickPlaceBets() {
       success: true,
       warning: 'No confirmation receipt found'
     });
-    
+
     // Try clicking Done button anyway
     await clickDoneButton();
-    
+
     return true;
   } catch (error) {
     console.error('Error placing bets:', error);
-    
+
     // Notify about the bet placement failure
     chrome.runtime.sendMessage({
       action: 'betPlaced',
       success: false,
       error: error.message
     });
-    
+
     throw error;
   }
 }
@@ -1846,47 +2282,47 @@ async function clickDoneButton() {
   try {
     console.log('Looking for Done button to click...');
     await sleep(1000);
-    
+
     // Array of possible selectors for the Done button
     const doneButtonSelectors = [
       'button[data-testid="betslip-place-bet-done"]',
       'button:contains("Done")'
     ];
-    
+
     let doneButton = null;
-    
+
     // Try each selector
     for (const selector of doneButtonSelectors) {
       if (selector.includes(':contains')) {
         // Handle text-based selectors
         const buttonText = selector.match(/:contains\("(.+?)"\)/)[1];
         const buttons = Array.from(document.querySelectorAll('button'));
-        doneButton = buttons.find(btn => 
-          btn.textContent && 
+        doneButton = buttons.find(btn =>
+          btn.textContent &&
           btn.textContent.trim().toLowerCase().includes(buttonText.toLowerCase()) &&
           btn.offsetParent !== null // Ensure button is visible
         );
       } else {
-        const foundButtons = Array.from(document.querySelectorAll(selector)).filter(btn => 
+        const foundButtons = Array.from(document.querySelectorAll(selector)).filter(btn =>
           btn.offsetParent !== null // Ensure button is visible
         );
         if (foundButtons.length > 0) {
           doneButton = foundButtons[0];
         }
       }
-      
+
       if (doneButton) {
         console.log(`Found Done button with selector: ${selector}`);
         break;
       }
     }
-    
+
     // If still not found, look in bet receipt or confirmation containers
     if (!doneButton) {
       const receiptContainers = document.querySelectorAll(
         '[data-testid="betslip-receipt"], [data-testid="bet-confirmation"], .bet-receipt, .bet-confirmation'
       );
-      
+
       for (const container of receiptContainers) {
         if (container.offsetParent !== null) { // Check if visible
           const buttons = container.querySelectorAll('button');
@@ -1902,7 +2338,7 @@ async function clickDoneButton() {
         }
       }
     }
-    
+
     // If we found the Done button, click it
     if (doneButton) {
       console.log('Clicking Done button to clear selections...');
@@ -1924,7 +2360,7 @@ async function clickDoneButton() {
 async function handleOddsChangeError() {
   try {
     console.log('Handling odds change error');
-    
+
     // Look for an "Accept New Odds" button
     const acceptButtonSelectors = [
       'button[data-testid="accept-new-odds"]',
@@ -1933,9 +2369,9 @@ async function handleOddsChangeError() {
       'button:contains("Accept")',
       'button:contains("Accept New Odds")'
     ];
-    
+
     let acceptButton = null;
-    
+
     // Try each selector
     for (const selector of acceptButtonSelectors) {
       // Use different methods for the :contains pseudo-selector
@@ -1951,29 +2387,29 @@ async function handleOddsChangeError() {
       } else {
         acceptButton = document.querySelector(selector);
       }
-      
+
       if (acceptButton) break;
     }
-    
+
     if (acceptButton) {
       console.log('Found Accept New Odds button, clicking it');
       acceptButton.click();
-      
+
       // Wait for the UI to update
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       return true;
     } else {
       // If no accept button, we may need to reselect the matches
       console.log('No accept button found, we may need to reload the selections');
-      
+
       // Close any error dialogs
       const closeButtons = document.querySelectorAll('.close-button, button.close, [data-testid="close-button"]');
       for (const button of closeButtons) {
         button.click();
         await new Promise(resolve => setTimeout(resolve, 500));
       }
-      
+
       // We'll let the startNextBetCombination function handle reselecting
       return false;
     }
@@ -1987,13 +2423,13 @@ async function handleOddsChangeError() {
 async function startNextBetCombination(retryCount = 0) {
   try {
     console.log('Starting next bet combination');
-    
+
     // Check if we have any pending bet combinations to process
     const result = await chrome.storage.local.get(['pendingBetCombinations', 'currentBetIndex']);
-    
+
     const pendingCombinations = result.pendingBetCombinations || [];
     const currentIndex = result.currentBetIndex || 0;
-    
+
     if (currentIndex >= pendingCombinations.length) {
       console.log('No more bet combinations to process');
       // Notify that all combinations are complete
@@ -2003,75 +2439,75 @@ async function startNextBetCombination(retryCount = 0) {
       });
       return;
     }
-    
+
     console.log(`Processing bet combination ${currentIndex + 1} of ${pendingCombinations.length}`);
-    
+
     // First, clear any existing selections
     await clearSelections();
-    
+
     // Get the current combination to process
     const currentCombination = pendingCombinations[currentIndex];
-    
+
     // Check if we have match IDs and selections
     if (!currentCombination.matchIds || !currentCombination.playerSelections) {
       throw new Error('Invalid bet combination data');
     }
-    
+
     // Reselect the matches for this combination
     await handleMatchReselection(
       currentCombination.matchIds,
       currentCombination.playerSelections
     );
-    
+
     // Wait for the betslip to be ready
     await waitForBetSlip();
-    
+
     // Navigate to multi-bet section
     await navigateToMultiBet();
-    
+
     // Enter stake amount
     const stakeAmount = currentCombination.stakeAmount || '10.00';
     await enterStakeAmount(stakeAmount);
-    
+
     // Increment the current bet index for the next combination
     await chrome.storage.local.set({
       currentBetIndex: currentIndex + 1
     });
-    
+
     // Place the bets
     await clickPlaceBets();
-    
+
     return true;
   } catch (error) {
     console.error(`Error starting bet combination (attempt ${retryCount + 1}):`, error);
-    
+
     // Check if we should retry
     const maxRetries = 2;
     if (retryCount < maxRetries) {
       console.log(`Retrying (${retryCount + 1}/${maxRetries})...`);
-      
+
       // Wait before retrying
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
       // Try again with incremented retry count
       return startNextBetCombination(retryCount + 1);
     }
-    
+
     // If we've exhausted retries, notify of the error and move to next combination
     chrome.runtime.sendMessage({
       action: 'betCombinationError',
       error: error.message
     });
-    
+
     // Get current index and increment to skip this problematic combination
     const result = await chrome.storage.local.get(['currentBetIndex']);
     const currentIndex = result.currentBetIndex || 0;
-    
+
     // Move to the next combination
     await chrome.storage.local.set({
       currentBetIndex: currentIndex + 1
     });
-    
+
     // Start the next combination
     console.log('Moving to next combination after error');
     setTimeout(() => {
@@ -2079,7 +2515,7 @@ async function startNextBetCombination(retryCount = 0) {
         console.error('Error skipping to next combination:', error);
       });
     }, 2000);
-    
+
     throw error;
   }
 }
@@ -2101,7 +2537,7 @@ chrome.runtime.onMessage.addListener((message) => {
 async function setupBetCombinations(combinations, defaultStakeAmount = '10.00') {
   try {
     console.log(`Setting up ${combinations.length} bet combinations`);
-    
+
     // Format the combinations with necessary data
     const formattedCombinations = combinations.map(combo => {
       return {
@@ -2110,21 +2546,21 @@ async function setupBetCombinations(combinations, defaultStakeAmount = '10.00') 
         stakeAmount: combo.stakeAmount || defaultStakeAmount
       };
     });
-    
+
     // Store the combinations and reset the index
     await chrome.storage.local.set({
       pendingBetCombinations: formattedCombinations,
       currentBetIndex: 0
     });
-    
+
     console.log('Bet combinations stored, starting the process');
-    
+
     // Clear any existing betslip selections
     await clearSelections();
-    
+
     // Start the first combination
     await startNextBetCombination();
-    
+
     return true;
   } catch (error) {
     console.error('Error setting up bet combinations:', error);
@@ -2137,28 +2573,28 @@ async function findMatchesByIds(matchIds) {
   try {
     console.log(`Searching for ${matchIds.length} matches with IDs:`, matchIds);
     console.log('PRIORITY SEARCH: Using data-market-id attribute as primary identifier');
-    
+
     // Wait briefly before starting the search
     await sleep(500);
-    
+
     // Wait for the main content to load with a high timeout
     const mainContentSelectors = [
-      '.main-content', 
-      '.event-list', 
-      '.market-group', 
+      '.main-content',
+      '.event-list',
+      '.market-group',
       '.flex-col.rounded-md',
       '.match-list',
       '.event-container',
       '#main-content'
     ];
-    
+
     console.log('Waiting for main content with selectors:', mainContentSelectors.join(', '));
     const matchesContainer = await waitForElement(mainContentSelectors.join(', '), 30000);
     console.log('Found main content container:', matchesContainer);
-    
+
     // Wait briefly after finding the main container
     await sleep(800);
-    
+
     // Get all match containers - try multiple selectors to ensure we find matches
     const allMatchesSelectors = [
       '.flex-col.rounded-md',  // This matches the example DOM structure
@@ -2170,28 +2606,28 @@ async function findMatchesByIds(matchIds) {
       '.match-row',
       '.game-container'
     ];
-    
+
     // Map to store found matches
     const matchesMap = {};
-    
+
     // DIRECT METHOD: First try to find buttons with the exact match IDs directly
     console.log('DIRECT SEARCH: Looking for price buttons with exact data-market-id attributes');
-    
+
     for (const matchId of matchIds) {
       // Look for buttons with this specific matchId
       const buttons = document.querySelectorAll(`button[data-market-id="${matchId}"], .price-button[data-market-id="${matchId}"]`);
-      
+
       if (buttons.length > 0) {
         console.log(`Found ${buttons.length} buttons with data-market-id="${matchId}"`);
-        
+
         // Get the closest match container (parent element)
         let matchContainer = null;
-        
+
         // Find a parent that contains both buttons (if multiple buttons exist)
         if (buttons.length > 1) {
           const firstButton = buttons[0];
           let parent = firstButton.parentElement;
-          
+
           // Go up the DOM tree to find a container that includes both buttons
           while (parent && !matchContainer) {
             // Check if this parent contains all buttons
@@ -2202,44 +2638,44 @@ async function findMatchesByIds(matchIds) {
                 break;
               }
             }
-            
+
             if (containsAllButtons) {
               matchContainer = parent;
               console.log(`Found match container for ${matchId} (contains all buttons)`);
               break;
             }
-            
+
             parent = parent.parentElement;
           }
         }
-        
+
         // If we couldn't find a common parent, use the first button's parent
         if (!matchContainer && buttons.length > 0) {
           // Look for parent with specific classes from the example
           let button = buttons[0];
           let parent = button.parentElement;
-          
+
           while (parent) {
-            if (parent.classList.contains('flex-col') && 
+            if (parent.classList.contains('flex-col') &&
                 parent.classList.contains('rounded-md') ||
                 parent.querySelector('[data-testid="team-vs-team"]')) {
               matchContainer = parent;
               console.log(`Found match container for ${matchId} (by class structure)`);
               break;
             }
-            
+
             // If we've gone too far up the tree, stop
             if (parent === document.body) break;
             parent = parent.parentElement;
           }
-          
+
           // If still no match, use a closer parent
           if (!matchContainer) {
             // Try to find a parent up to 5 levels up
             button = buttons[0];
             parent = button.parentElement;
             for (let i = 0; i < 5 && parent; i++) {
-              if (parent.querySelector('[data-testid="team-vs-team"]') || 
+              if (parent.querySelector('[data-testid="team-vs-team"]') ||
                   parent.querySelectorAll('.price-button, [data-testid^="price-button-"]').length >= 2) {
                 matchContainer = parent;
                 console.log(`Found match container for ${matchId} (by proximity)`);
@@ -2247,7 +2683,7 @@ async function findMatchesByIds(matchIds) {
               }
               parent = parent.parentElement;
             }
-            
+
             // Last resort: use the immediate parent
             if (!matchContainer) {
               matchContainer = buttons[0].parentElement;
@@ -2255,27 +2691,27 @@ async function findMatchesByIds(matchIds) {
             }
           }
         }
-        
+
         if (matchContainer) {
           matchesMap[matchId] = matchContainer;
           console.log(`Successfully mapped match ${matchId} to container element`);
         }
       }
     }
-    
+
     // If we found all matches using direct button search, return early
     if (Object.keys(matchesMap).length === matchIds.length) {
       console.log(`Found all ${matchIds.length} matches by direct data-market-id search, returning`);
       return matchesMap;
     }
-    
+
     // Log which matches are still missing
     const missingMatchIds = matchIds.filter(id => !matchesMap[id]);
     console.log(`Still missing ${missingMatchIds.length} matches, trying container search`);
-    
+
     // Wait briefly before trying container search
     await sleep(800);
-    
+
     // Continue with normal container-based search for remaining matches
     let allMatches = [];
     for (const selector of allMatchesSelectors) {
@@ -2287,7 +2723,7 @@ async function findMatchesByIds(matchIds) {
         break;
       }
     }
-    
+
     // If still not found, try looking anywhere in the document (not just in the main container)
     if (allMatches.length === 0) {
       console.log('No matches found in main container, trying document-wide search');
@@ -2300,16 +2736,16 @@ async function findMatchesByIds(matchIds) {
         }
       }
     }
-    
-    // If still no matches found, look for price buttons directly 
+
+    // If still no matches found, look for price buttons directly
     if (allMatches.length === 0) {
       console.log('No match containers found, searching for price buttons directly');
       console.log('Looking for price buttons with data-market-id attributes directly');
       const priceButtons = document.querySelectorAll('.price-button[data-market-id], [data-testid^="price-button-"][data-market-id]');
-      
+
       if (priceButtons.length > 0) {
         console.log(`Found ${priceButtons.length} price buttons with data-market-id directly`);
-        
+
         // Extract all match IDs from the buttons for logging
         const foundIds = new Set();
         priceButtons.forEach(button => {
@@ -2317,10 +2753,10 @@ async function findMatchesByIds(matchIds) {
           if (id) foundIds.add(id);
         });
         console.log(`Price buttons contain ${foundIds.size} unique match IDs:`, Array.from(foundIds));
-        
+
         // Group price buttons by their parent containers
         const buttonContainers = new Map();
-        
+
         for (const button of priceButtons) {
           // Try to find a parent container (up to 5 levels up)
           let container = button.parentElement;
@@ -2332,13 +2768,13 @@ async function findMatchesByIds(matchIds) {
             }
             container = container.parentElement;
           }
-          
+
           // If no suitable container found, use the button's immediate parent
           if (!container) {
             buttonContainers.set(button.parentElement, button.parentElement);
           }
         }
-        
+
         // Convert map values to array
         allMatches = Array.from(buttonContainers.values());
         console.log(`Identified ${allMatches.length} potential match containers from price buttons`);
@@ -2346,10 +2782,10 @@ async function findMatchesByIds(matchIds) {
         // If still nothing found, try again without the data-market-id requirement
         const allPriceButtons = document.querySelectorAll('.price-button, [data-testid^="price-button-"]');
         console.log(`Found ${allPriceButtons.length} price buttons without data-market-id requirement`);
-        
+
         // Group price buttons by their parent containers
         const buttonContainers = new Map();
-        
+
         for (const button of allPriceButtons) {
           // Try to find a parent container (up to 5 levels up)
           let container = button.parentElement;
@@ -2361,31 +2797,31 @@ async function findMatchesByIds(matchIds) {
             }
             container = container.parentElement;
           }
-          
+
           // If no suitable container found, use the button's immediate parent
           if (!container) {
             buttonContainers.set(button.parentElement, button.parentElement);
           }
         }
-        
+
         // Convert map values to array
         allMatches = Array.from(buttonContainers.values());
         console.log(`Identified ${allMatches.length} potential match containers from price buttons (without data-market-id)`);
       }
     }
-    
+
     // If we still don't have any matches, try a last resort approach
     if (allMatches.length === 0) {
       console.warn('No match elements found using any selector, trying to identify matches by scrolling');
-      
+
       // Try scrolling down to load more content
       const scrollStep = 500;
       const maxScrolls = 5;
-      
+
       for (let i = 0; i < maxScrolls; i++) {
         window.scrollBy(0, scrollStep);
         await sleep(1000);
-        
+
         // Try all selectors again after scrolling
         for (const selector of allMatchesSelectors) {
           const matches = document.querySelectorAll(selector);
@@ -2395,28 +2831,28 @@ async function findMatchesByIds(matchIds) {
             break;
           }
         }
-        
+
         if (allMatches.length > 0) break;
       }
     }
-    
+
     // Log for debugging
     console.log(`Found ${allMatches.length} total match elements on page`);
-    
+
     // STEP 1: Find matches by match ID in price buttons - PRIMARY METHOD
     console.log('Looking for matches by data-market-id attribute - PRIMARY SEARCH METHOD');
     console.log('Searching for match IDs:', missingMatchIds);
-    
+
     // Keep track of the match IDs we find
     const foundMatchIds = [];
-    
+
     for (const container of allMatches) {
       // Get all price buttons in this match container
       const priceButtons = container.querySelectorAll('.price-button, [data-testid^="price-button-"]');
-      
+
       for (const button of priceButtons) {
         const buttonMatchId = button.getAttribute('data-market-id');
-        
+
         if (buttonMatchId && missingMatchIds.includes(buttonMatchId)) {
           // Found a match, store its container
           matchesMap[buttonMatchId] = container;
@@ -2426,37 +2862,37 @@ async function findMatchesByIds(matchIds) {
         }
       }
     }
-    
+
     // Log all successfully found match IDs
     if (foundMatchIds.length > 0) {
       console.log(`Successfully found ${foundMatchIds.length}/${missingMatchIds.length} matches by data-market-id:`, foundMatchIds);
     }
-    
+
     // If we found all matches, return early
     if (Object.keys(matchesMap).length === matchIds.length) {
       console.log(`Found all ${matchIds.length} matches by ID, returning`);
       return matchesMap;
     }
-    
+
     // STEP 3: For matches we haven't found, try to find by team names - FALLBACK METHOD
     const remainingMissingIds = matchIds.filter(id => !matchesMap[id]);
-    
+
     if (remainingMissingIds.length > 0) {
       console.log(`Still missing ${remainingMissingIds.length} matches, trying to find by team names (FALLBACK METHOD)`);
       console.log('Missing match IDs:', remainingMissingIds);
-      
+
       // Wait briefly before trying team name search
       await sleep(500);
-      
+
       // Get current selected matches data from storage
       const result = await chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed']);
-      
+
       // Use confirmed matches if available, otherwise use selected matches
-      const storedMatches = result.isMatchesConfirmed && result.confirmedMatches ? 
+      const storedMatches = result.isMatchesConfirmed && result.confirmedMatches ?
                              result.confirmedMatches : result.selectedMatches || [];
-      
+
       console.log(`Got ${storedMatches.length} stored matches to look up team names`);
-      
+
       // Create a map of team names to match IDs
       const teamToMatchMap = {};
       for (const match of storedMatches) {
@@ -2464,31 +2900,31 @@ async function findMatchesByIds(matchIds) {
           // Map both teams to this match ID
           if (match.team1) teamToMatchMap[match.team1.toLowerCase()] = match.matchId;
           if (match.team2) teamToMatchMap[match.team2.toLowerCase()] = match.matchId;
-          
+
           // Also map the selected team
           if (match.selectedTeam) teamToMatchMap[match.selectedTeam.toLowerCase()] = match.matchId;
-          
+
           // And the opponent team
           if (match.opponentTeam) teamToMatchMap[match.opponentTeam.toLowerCase()] = match.matchId;
         }
       }
-      
+
       console.log('Created team name to match ID mapping:', teamToMatchMap);
-      
+
       // Look for team names in the DOM
       const foundByTeam = {};
-      
+
       for (const container of allMatches) {
         // Only check containers we haven't already mapped
         const containerMatchIds = Object.entries(matchesMap)
                                         .filter(([_, c]) => c === container)
                                         .map(([id, _]) => id);
-                                        
+
         if (containerMatchIds.length > 0) continue; // Skip this container, already mapped
-        
+
         // Get all text content from this container
         const allText = container.textContent.toLowerCase();
-        
+
         // Check each team name
         for (const [teamName, matchId] of Object.entries(teamToMatchMap)) {
           if (allText.includes(teamName.toLowerCase()) && !foundByTeam[matchId]) {
@@ -2497,7 +2933,7 @@ async function findMatchesByIds(matchIds) {
             console.log(`Found match ${matchId} by team name "${teamName}" (fallback method)`);
           }
         }
-        
+
         // Also look more specifically for team elements
         const teamElements = container.querySelectorAll('.team-name, .player-name, .flex-shrink.truncate, .displayTitle');
         for (const element of teamElements) {
@@ -2511,7 +2947,7 @@ async function findMatchesByIds(matchIds) {
         }
       }
     }
-    
+
     // Log final results
     const foundCount = Object.keys(matchesMap).length;
     console.log(`Final search results: found ${foundCount} out of ${matchIds.length} matches`);
@@ -2519,10 +2955,10 @@ async function findMatchesByIds(matchIds) {
       const finalMissingIds = matchIds.filter(id => !matchesMap[id]);
       console.warn(`Missing match IDs: ${finalMissingIds.join(', ')}`);
     }
-    
+
     // Final wait before returning results
     await sleep(500);
-    
+
     return matchesMap;
   } catch (error) {
     console.error('Error finding matches by IDs:', error);
