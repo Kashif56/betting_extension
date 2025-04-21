@@ -1,4 +1,4 @@
-# Betting Bot Extension
+# Bot Extension
 
 A browser extension for automating betting on sports matches, specifically designed for tennis matches on Ladbrokes.
 
@@ -32,31 +32,3 @@ The extension now supports sophisticated betting with a balanced player selectio
    - Place the bet
    - Repeat the process with different combinations (up to 5 times by default)
 
-## Getting Started
-
-1. Install the extension
-2. Navigate to a tennis betting page
-3. Select your matches
-4. Configure your betting preferences
-5. Start the bot to automate your betting process
-
-## Development
-
-To develop or modify this extension:
-
-1. Clone the repository
-2. Install dependencies with `npm install`
-3. Make your changes
-4. Load the unpacked extension in Chrome
-
-## Implemented Betting Strategies
-
-The extension now implements the following approaches:
-
-1. **Opposite Player Selection**: Simple and direct, selects the opposite player
-2. **Favorites/Underdogs Ratio (ACTIVE)**: More sophisticated strategy maintaining a 60% favorites and 40% underdogs ratio for optimal betting patterns
-3. **Machine Learning-Based**: Advanced approach using historical data (future development)
-
-## License
-
-MIT License

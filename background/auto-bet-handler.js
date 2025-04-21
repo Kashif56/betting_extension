@@ -17,7 +17,8 @@ let autoBetSession = {
   originalSelections: [],
   alternativeSelections: [],
   completedBets: [],
-  failedBets: []
+  failedBets: [],
+  usedCombinationKeys: new Set() // Track all used combination keys to prevent duplicates
 };
 
 // Export variables and functions for use in background.js
@@ -240,7 +241,8 @@ async function startAutoBetting(stakeAmount = STAKE_AMOUNT, favoritesCount = 0, 
       alternativeSelections: [],
       completedBets: [],
       failedBets: [],
-      allCombinations: [] // Store all generated combinations
+      allCombinations: [], // Store all generated combinations
+      usedCombinationKeys: new Set() // Reset the set of used combination keys
     };
 
     // Get active tab
@@ -312,6 +314,16 @@ async function startAutoBetting(stakeAmount = STAKE_AMOUNT, favoritesCount = 0, 
 
     // Generate alternative selections with balanced favorites/underdogs ratio
     autoBetSession.alternativeSelections = generateBalancedPlayerSelections(response.matches, favoritesCount, underdogsCount);
+
+    // Generate a key for this initial combination and add it to the used combinations set
+    const initialCombinationKey = autoBetSession.alternativeSelections
+      .map(match => `${match.matchId}:${match.selectedTeam}`)
+      .sort()
+      .join('|');
+
+    // Add to used combinations set to prevent duplicates
+    autoBetSession.usedCombinationKeys.add(initialCombinationKey);
+    console.log(`Added initial combination key to used combinations: ${initialCombinationKey.substring(0, 50)}...`);
 
     // Log the first set of selections that will be used
     console.log('\n=== FIRST BET COMBINATION TO BE USED ===');
@@ -910,9 +922,8 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
   };
 }
 
-// Generate selections with balanced favorites/underdogs ratio
+
 function generateBalancedPlayerSelections(originalMatches, favoritesCount = 0, underdogsCount = 0) {
-  // First, create a map of matches by matchId with both player options
   const matchesMap = {};
 
   // Process each match to create player pairs
@@ -1086,7 +1097,37 @@ async function processBetLoop(tabId, matches, stakeAmount) {
         // Generate new selections with user-specified counts or 60/40 ratio for subsequent bets
         console.log('\n=== GENERATING NEW PLAYER SELECTIONS FOR BET #' + (currentAutoBetCount + 1) + ' ===');
         console.log(`Using counts from storage: ${userFavoritesCount} favorites, ${userUnderdogsCount} underdogs`);
-        autoBetSession.alternativeSelections = generateBalancedPlayerSelections(autoBetSession.originalSelections, userFavoritesCount, userUnderdogsCount);
+
+        // Try to generate a unique combination (not used before)
+        let maxAttempts = 10; // Limit the number of attempts to avoid infinite loops
+        let uniqueCombinationFound = false;
+        let newSelections = [];
+
+        while (!uniqueCombinationFound && maxAttempts > 0) {
+          newSelections = generateBalancedPlayerSelections(autoBetSession.originalSelections, userFavoritesCount, userUnderdogsCount);
+
+          // Generate a key for this combination
+          const selectionKey = newSelections
+            .map(match => `${match.matchId}:${match.selectedTeam}`)
+            .sort()
+            .join('|');
+
+          // Check if this combination has been used before
+          if (!autoBetSession.usedCombinationKeys.has(selectionKey)) {
+            uniqueCombinationFound = true;
+            console.log(`Found unique combination (not used before): ${selectionKey.substring(0, 50)}...`);
+          } else {
+            console.log(`Combination already used, trying again... (${maxAttempts - 1} attempts remaining)`);
+            maxAttempts--;
+          }
+        }
+
+        if (!uniqueCombinationFound) {
+          console.log('WARNING: Could not find a unique combination after multiple attempts.');
+          console.log('This may indicate that all possible combinations have been used.');
+        }
+
+        autoBetSession.alternativeSelections = newSelections;
         matches = autoBetSession.alternativeSelections.filter(match => !match.isLive);
       }
 
@@ -1199,6 +1240,17 @@ async function processBetLoop(tabId, matches, stakeAmount) {
       const potentialReturn = stakeAmount * totalOdds;
       console.log(`Total combined odds: ${totalOdds.toFixed(2)}`);
       console.log(`Potential return: ${potentialReturn.toFixed(2)} (stake: ${stakeAmount})`);
+
+      // Generate a key for this combination and add it to the used combinations set
+      const currentCombinationKey = matches
+        .map(match => `${match.matchId}:${match.selectedTeam}`)
+        .sort()
+        .join('|');
+
+      // Add to used combinations set to prevent duplicates
+      autoBetSession.usedCombinationKeys.add(currentCombinationKey);
+      console.log(`Added combination key to used combinations: ${currentCombinationKey.substring(0, 50)}...`);
+      console.log(`Total unique combinations used so far: ${autoBetSession.usedCombinationKeys.size}`);
 
       // 3. PLACE ACTUAL BET instead of just simulating
       console.log('PLACING REAL BET with stake amount:', stakeAmount);
