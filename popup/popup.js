@@ -6,6 +6,7 @@ const favoritesCountInput = document.getElementById('favoritesCount');
 const underdogsCountInput = document.getElementById('underdogsCount');
 const startAutoBettingButton = document.getElementById('startAutoBettingButton');
 const terminateAutoBettingButton = document.getElementById('terminateAutoBettingButton');
+const stopBettingButton = document.getElementById('stopBettingButton');
 const settingsButton = document.getElementById('settingsButton');
 const notification = document.getElementById('notification');
 let matchCountElement = document.getElementById('matchCount');
@@ -471,6 +472,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   selectedMatchesList = document.getElementById('selectedMatchesList');
   matchCountElement = document.getElementById('matchCount');
 
+  // Make sure all button elements are properly initialized
+  const startStopButton = document.getElementById('startStopButton');
+  const startAutoBettingButton = document.getElementById('startAutoBettingButton');
+  const terminateAutoBettingButton = document.getElementById('terminateAutoBettingButton');
+  const stopBettingButton = document.getElementById('stopBettingButton');
+
   if (!selectedMatchesList) {
     console.error('CRITICAL: selectedMatchesList element not found on DOMContentLoaded');
   }
@@ -530,8 +537,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateBotStatus(isRunning);
     }
 
-    // Check auto betting status
-    checkAutoBettingStatus();
+    // Check auto betting status and update UI accordingly
+    const autoBettingStatus = await checkAutoBettingStatus();
+    console.log('Initial auto betting status check:', autoBettingStatus);
+
+    // If auto betting is active, show the appropriate buttons
+    if (autoBettingStatus && autoBettingStatus.isAutoBetting) {
+      console.log('Auto betting is active, updating UI');
+      updateAutoBettingStatus(true);
+    }
 
     // Listen for match updates
     chrome.runtime.onMessage.addListener(handleMessage);
@@ -598,6 +612,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       startStopButton.addEventListener('click', toggleBot);
     }
 
+    // Function to toggle bot state
+    async function toggleBot() {
+      if (isRunning) {
+        await stopBot();
+      } else {
+        await startBot();
+      }
+    }
+
     // Bet variations buttons event listeners removed
 
     if (startAutoBettingButton) {
@@ -605,7 +628,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (terminateAutoBettingButton) {
-      terminateAutoBettingButton.addEventListener('click', terminateAutoBetting);
+      terminateAutoBettingButton.addEventListener('click', resetExtension);
+    }
+
+    if (stopBettingButton) {
+      stopBettingButton.addEventListener('click', stopBettingAndReload);
     }
 
     if (settingsButton) {
@@ -754,7 +781,7 @@ async function startBot() {
 
     // Send message to background script to start the bot with error handling
     chrome.runtime.sendMessage(
-      { action: 'startBot', delay: parseInt(delayInput.value) },
+      { action: 'startBot', delay: 1000 }, // Use default delay of 1000ms
       (response) => {
         if (chrome.runtime.lastError) {
           console.error('Error sending start message:', chrome.runtime.lastError);
@@ -797,26 +824,106 @@ async function stopBot() {
     );
 
     console.log('Bot stop request sent');
+
+    // Show confirmation dialog for resetting data and reloading page
+    const confirmation = confirm('Do you want to reset data and reload the page?');
+    if (confirmation) {
+      await resetDataAndReloadPage();
+    }
   } catch (error) {
     console.error('Error stopping bot:', error);
   }
 }
 
+// Function to stop betting, reset data and reload the page
+async function stopBettingAndReload() {
+  try {
+    // Show confirmation dialog
+    const confirmation = confirm('Are you sure you want to stop betting? This will reset all data and reload the page.');
+    if (!confirmation) return;
+
+    // Show notification that we're stopping the betting process
+    showNotification('Stopping auto betting and resetting data...', 'info');
+
+    // First, forcefully terminate auto betting if it's running
+    console.log('Forcefully terminating auto betting...');
+
+    // Send terminate message directly to ensure it stops
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'terminateAutoBetting' }, (response) => {
+        console.log('Terminate auto betting response:', response);
+        resolve();
+      });
+
+      // Add a timeout to resolve the promise even if there's no response
+      setTimeout(resolve, 1000);
+    });
+
+    // Update UI to reflect that auto betting is stopped
+    isAutoBetting = false;
+    updateAutoBettingStatus(false);
+
+    // Then reset data and reload page
+    console.log('Resetting data and reloading page...');
+    await resetDataAndReloadPage();
+  } catch (error) {
+    console.error('Error stopping betting and reloading:', error);
+    showNotification('Error stopping betting: ' + error.message, 'error');
+
+    // Try to reset and reload anyway as a fallback
+    try {
+      await resetDataAndReloadPage();
+    } catch (innerError) {
+      console.error('Error in fallback reset:', innerError);
+    }
+  }
+}
+
+// Function to reset data and reload the page
+async function resetDataAndReloadPage() {
+  try {
+    // Clear all stored data in chrome.storage.local
+    await chrome.storage.local.clear();
+
+    // Show notification
+    showNotification('Data reset successfully. Reloading page...', 'success');
+
+    // Reset all state variables
+    selectedMatches = [];
+    confirmedMatches = [];
+    isMatchesConfirmed = false;
+    isAutoBetting = false;
+    isRunning = false;
+
+    // Reload the current page after a short delay
+    setTimeout(() => {
+      // Reload the current tab
+      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        if (tabs[0]) {
+          chrome.tabs.reload(tabs[0].id);
+        }
+        // Also reload the popup
+        location.reload();
+      });
+    }, 1500);
+  } catch (error) {
+    console.error('Error resetting data and reloading page:', error);
+    showNotification('Error resetting data: ' + error.message, 'error');
+  }
+}
+
 async function saveSettings() {
   try {
-    const delay = parseInt(delayInput.value);
     const stakeAmount = parseFloat(stakeAmountInput.value);
-    await chrome.storage.local.set({ delay, stakeAmount });
+    await chrome.storage.local.set({ stakeAmount });
 
-    // Show a temporary success message
-    saveSettingsBtn.textContent = 'Saved!';
-    setTimeout(() => {
-      saveSettingsBtn.textContent = 'Save Settings';
-    }, 1500);
+    // Show notification
+    showNotification('Settings saved successfully', 'success');
 
     console.log('Settings saved');
   } catch (error) {
     console.error('Error saving settings:', error);
+    showNotification('Error saving settings: ' + error.message, 'error');
   }
 }
 
@@ -1155,10 +1262,11 @@ async function startAutoBetting() {
 
     // Update UI immediately to show we're starting
 
-    // Show terminate button
-    if (terminateAutoBettingButton) {
+    // Show terminate and stop betting buttons
+    if (terminateAutoBettingButton && stopBettingButton) {
       startAutoBettingButton.style.display = 'none';
       terminateAutoBettingButton.style.display = 'inline-block';
+      stopBettingButton.style.display = 'inline-block';
     }
 
     // Start auto betting - pass the favorites and underdogs counts
@@ -1261,7 +1369,15 @@ function updateAutoBettingStatus(isActive) {
 
     // Update buttons
     if (startAutoBettingButton) {
-      startAutoBettingButton.disabled = isActive;
+      startAutoBettingButton.style.display = isActive ? 'none' : 'inline-block';
+    }
+
+    if (terminateAutoBettingButton) {
+      terminateAutoBettingButton.style.display = isActive ? 'inline-block' : 'none';
+    }
+
+    if (stopBettingButton) {
+      stopBettingButton.style.display = isActive ? 'inline-block' : 'none';
     }
 
     // Update other interface elements based on auto betting status
@@ -1290,24 +1406,41 @@ function updateAutoBettingProgress(current, total) {
 
 async function checkAutoBettingStatus() {
   try {
+    console.log('Checking auto betting status...');
     const response = await chrome.runtime.sendMessage({
       action: 'getAutoBettingStatus'
     });
 
-    if (response.status === 'success') {
+    console.log('Auto betting status response:', response);
+
+    if (response) {
+      // Update global state
       isAutoBetting = response.isAutoBetting;
       maxAutoBets = response.maxAutoBets || 5;
-      updateAutoBettingStatus(isAutoBetting);
 
+      // Log the current status
+      console.log(`Auto betting is ${isAutoBetting ? 'active' : 'inactive'}`);
+
+      // Update UI based on status
       if (isAutoBetting && response.sessionInfo) {
         updateAutoBettingProgress(
           response.sessionInfo.completedBets || 0,
           response.sessionInfo.totalBets || maxAutoBets
         );
       }
+
+      // Return the status for the caller to use
+      return {
+        isAutoBetting: isAutoBetting,
+        maxAutoBets: maxAutoBets,
+        sessionInfo: response.sessionInfo
+      };
     }
+
+    return { isAutoBetting: false };
   } catch (error) {
     console.error('Error checking auto betting status:', error);
+    return { isAutoBetting: false, error: error.message };
   }
 }
 
@@ -1360,10 +1493,14 @@ function handleMessage(message) {
       console.log('Auto betting progress update:', message);
 
       // Update the auto betting progress in the UI
-      if (terminateAutoBettingButton) {
+      if (terminateAutoBettingButton && stopBettingButton) {
         startAutoBettingButton.style.display = 'none';
         terminateAutoBettingButton.style.display = 'inline-block';
+        stopBettingButton.style.display = 'inline-block';
       }
+
+      // Update the global auto betting state
+      isAutoBetting = true;
 
       // Status text update removed
 
@@ -1400,8 +1537,9 @@ function handleMessage(message) {
       console.log('Auto betting completed:', message);
 
       // Update UI to show completed state
-      if (terminateAutoBettingButton) {
+      if (terminateAutoBettingButton && stopBettingButton) {
         terminateAutoBettingButton.style.display = 'none';
+        stopBettingButton.style.display = 'none';
         startAutoBettingButton.style.display = 'inline-block';
       }
 
@@ -1446,8 +1584,9 @@ function handleMessage(message) {
       console.error('Auto betting failed:', message);
 
       // Update UI to show error state
-      if (terminateAutoBettingButton) {
+      if (terminateAutoBettingButton && stopBettingButton) {
         terminateAutoBettingButton.style.display = 'none';
+        stopBettingButton.style.display = 'none';
         startAutoBettingButton.style.display = 'inline-block';
       }
 
@@ -1679,8 +1818,9 @@ async function terminateAutoBetting() {
         showNotification('Auto betting terminated');
 
         // Update UI
-        if (terminateAutoBettingButton) {
+        if (terminateAutoBettingButton && stopBettingButton) {
           terminateAutoBettingButton.style.display = 'none';
+          stopBettingButton.style.display = 'none';
           startAutoBettingButton.style.display = 'inline-block';
         }
       }
