@@ -28,7 +28,23 @@ let isMatchesConfirmed = false;
 function loadMatchesFromStorage() {
   console.log('Direct loading matches from storage...');
 
+  // Make sure we have the DOM elements before proceeding
+  if (!selectedMatchesList) {
+    console.error('selectedMatchesList element not found in the DOM');
+    selectedMatchesList = document.getElementById('selectedMatchesList');
+    if (!selectedMatchesList) {
+      console.error('CRITICAL ERROR: Cannot find selectedMatchesList element even after retry');
+      return;
+    }
+  }
 
+  if (!matchCountElement) {
+    console.error('matchCountElement not found in the DOM');
+    matchCountElement = document.getElementById('matchCount');
+    if (!matchCountElement) {
+      console.error('CRITICAL ERROR: Cannot find matchCount element even after retry');
+    }
+  }
 
   chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed'], (result) => {
     console.log('Direct storage load result:', result);
@@ -37,6 +53,10 @@ function loadMatchesFromStorage() {
     if (result.selectedMatches) {
       selectedMatches = result.selectedMatches;
       console.log('Loaded selected matches:', selectedMatches.length);
+      console.log('First match data:', selectedMatches.length > 0 ? JSON.stringify(selectedMatches[0]) : 'No matches');
+    } else {
+      console.warn('No selected matches found in storage');
+      selectedMatches = [];
     }
 
     if (result.isMatchesConfirmed) {
@@ -45,6 +65,10 @@ function loadMatchesFromStorage() {
       if (result.confirmedMatches) {
         confirmedMatches = result.confirmedMatches;
         console.log('Loaded confirmed matches:', confirmedMatches.length);
+        console.log('First confirmed match data:', confirmedMatches.length > 0 ? JSON.stringify(confirmedMatches[0]) : 'No confirmed matches');
+      } else {
+        console.warn('No confirmed matches found in storage despite isMatchesConfirmed being true');
+        confirmedMatches = [];
       }
 
       // Update UI to show confirmed status
@@ -52,6 +76,9 @@ function loadMatchesFromStorage() {
         confirmMatchesButton.textContent = 'Matches Confirmed';
         confirmMatchesButton.classList.add('confirmed');
       }
+    } else {
+      isMatchesConfirmed = false;
+      confirmedMatches = [];
     }
 
     // Use the matches we've loaded to update the display
@@ -60,6 +87,12 @@ function loadMatchesFromStorage() {
 
     // Immediately update the UI
     updateUIWithMatches(displayMatches);
+
+    // Force a second update after a short delay to handle any race conditions
+    setTimeout(() => {
+      console.log('Performing delayed UI update to ensure matches are displayed');
+      updateUIWithMatches(isMatchesConfirmed ? confirmedMatches : selectedMatches);
+    }, 500);
   });
 }
 
@@ -69,17 +102,43 @@ window.updateUIWithMatches = updateUIWithMatches;
 
 // Function to update UI with matches
 function updateUIWithMatches(matches) {
-  console.log('Directly updating UI with', matches.length, 'matches');
+  console.log('Directly updating UI with', matches ? matches.length : 0, 'matches');
+
+  // Safety check for null or undefined matches
+  if (!matches) {
+    console.error('Matches array is null or undefined');
+    matches = [];
+  }
+
+  // Make sure we have the DOM elements before proceeding
+  if (!selectedMatchesList) {
+    console.error('selectedMatchesList element not found in the DOM');
+    selectedMatchesList = document.getElementById('selectedMatchesList');
+    if (!selectedMatchesList) {
+      console.error('CRITICAL ERROR: Cannot find selectedMatchesList element even after retry');
+      return;
+    }
+  }
+
+  if (!matchCountElement) {
+    console.error('matchCountElement not found in the DOM');
+    matchCountElement = document.getElementById('matchCount');
+    if (!matchCountElement) {
+      console.error('CRITICAL ERROR: Cannot find matchCount element even after retry');
+    }
+  }
 
   // Update count
   if (matchCountElement) {
     matchCountElement.textContent = matches.length;
+    console.log(`Updated match count display to ${matches.length}`);
   }
 
   // Update matches list
   if (selectedMatchesList) {
     if (matches.length === 0) {
       selectedMatchesList.innerHTML = '<p class="no-matches">No matches selected</p>';
+      console.log('Set empty matches message');
 
       // Disable buttons that require matches
       if (viewMatchesButton) viewMatchesButton.disabled = true;
@@ -90,6 +149,8 @@ function updateUIWithMatches(matches) {
       if (viewMatchesButton) viewMatchesButton.disabled = false;
       if (clearSelectionsButton) clearSelectionsButton.disabled = isMatchesConfirmed;
       if (confirmMatchesButton) confirmMatchesButton.disabled = false;
+
+      console.log(`Displaying ${matches.length} matches in UI`);
 
       // Display matches
       let html = '';
@@ -109,6 +170,7 @@ function updateUIWithMatches(matches) {
               <div class="match-odds">Selected: ${selectedTeam} (${odds})</div>
             </div>
           `;
+          console.log(`Added match to display: ${team1} vs ${team2}, selected: ${selectedTeam}`);
         } catch (err) {
           console.error('Error processing match in direct UI update:', err, match);
         }
@@ -117,18 +179,27 @@ function updateUIWithMatches(matches) {
       // If there are more than 5 matches, show count of remaining
       if (matches.length > 5) {
         html += `<div class="match-item">+ ${matches.length - 5} more matches...</div>`;
+        console.log(`Added message for ${matches.length - 5} additional matches`);
       }
 
       // Safety check for empty HTML
       if (html === '') {
         html = '<p class="no-matches">Error displaying matches data</p>';
+        console.error('Generated HTML was empty, using error message instead');
       }
 
       // Set the HTML content
+      console.log('Setting HTML content for matches list');
       selectedMatchesList.innerHTML = html;
+
+      // Verify the content was set correctly
+      setTimeout(() => {
+        const items = selectedMatchesList.querySelectorAll('.match-item');
+        console.log(`Verification: Found ${items.length} match items in the DOM after update`);
+      }, 0);
     }
   } else {
-    console.error('selectedMatchesList element not found when directly updating UI');
+    console.error('CRITICAL ERROR: selectedMatchesList element not found when directly updating UI');
   }
 }
 
@@ -160,6 +231,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listen for match updates
     chrome.runtime.onMessage.addListener(handleMessage);
+
+    // Add a listener for storage changes to update the UI when matches change
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === 'local') {
+        console.log('Storage changes detected:', changes);
+
+        if (changes.selectedMatches || changes.confirmedMatches || changes.isMatchesConfirmed) {
+          console.log('Match data changed in storage, updating UI...');
+          // Reload matches from storage when they change
+          loadMatchesFromStorage();
+        }
+      }
+    });
 
     // Add event listeners for input validation
     if (favoritesCountInput && underdogsCountInput) {
@@ -249,6 +333,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       matchCountElement: !!matchCountElement,
       selectedMatches: selectedMatches.length
     });
+
+    // Force a second load after a short delay to handle any race conditions
+    setTimeout(() => {
+      console.log('Performing delayed match load to ensure matches are displayed');
+      loadMatchesFromStorage();
+    }, 1000);
 
     // Debug button removed
   } catch (error) {
@@ -384,15 +474,36 @@ function updateMatchesDisplay(matches) {
 
   // Safety check for null or undefined matches
   if (!matches) {
+    console.warn('Matches array is null or undefined');
     matches = [];
+  }
+
+  // Make sure we have the DOM elements before proceeding
+  if (!selectedMatchesList) {
+    console.error('selectedMatchesList element not found in the DOM');
+    selectedMatchesList = document.getElementById('selectedMatchesList');
+    if (!selectedMatchesList) {
+      console.error('CRITICAL ERROR: Cannot find selectedMatchesList element even after retry');
+      return;
+    }
+  }
+
+  if (!matchCountElement) {
+    console.error('matchCountElement not found in the DOM');
+    matchCountElement = document.getElementById('matchCount');
+    if (!matchCountElement) {
+      console.error('CRITICAL ERROR: Cannot find matchCount element even after retry');
+    }
   }
 
   // Use confirmed matches if they exist and matches are confirmed
   const displayMatches = isMatchesConfirmed ? confirmedMatches : matches;
+  console.log('Display matches:', displayMatches.length, 'isMatchesConfirmed:', isMatchesConfirmed);
 
   // Update count
   if (matchCountElement) {
     matchCountElement.textContent = displayMatches.length;
+    console.log(`Updated match count display to ${displayMatches.length}`);
   }
 
   // Update matches list
@@ -419,7 +530,7 @@ function updateMatchesDisplay(matches) {
       // Display matches
       let html = '';
 
-      displayMatches.slice(0, 5).forEach(match => {
+      displayMatches.slice(0, 5).forEach((match, index) => {
         try {
           // Safety checks for incomplete match data
           const team1 = match.team1 || 'Unknown Team 1';
@@ -429,11 +540,12 @@ function updateMatchesDisplay(matches) {
           const status = isMatchesConfirmed ? '<span class="confirmed-badge">Confirmed</span>' : '';
 
           html += `
-            <div class="match-item">
+            <div class="match-item" data-match-id="${match.matchId || index}">
               <div class="match-teams">${team1} vs ${team2} ${status}</div>
               <div class="match-odds">Selected: ${selectedTeam} (${odds})</div>
             </div>
           `;
+          console.log(`Added match to display: ${team1} vs ${team2}, selected: ${selectedTeam}`);
         } catch (err) {
           console.error('Error processing match data:', err, match);
         }
@@ -442,17 +554,25 @@ function updateMatchesDisplay(matches) {
       // If there are more than 5 matches, show count of remaining
       if (displayMatches.length > 5) {
         html += `<div class="match-item">+ ${displayMatches.length - 5} more matches...</div>`;
+        console.log(`Added message for ${displayMatches.length - 5} additional matches`);
       }
 
       if (html === '') {
         html = '<p class="no-matches">Error displaying matches data</p>';
+        console.error('Generated HTML was empty, using error message instead');
       }
 
       console.log('Generated HTML for matches:', html.substring(0, 100) + '...');
       selectedMatchesList.innerHTML = html;
+
+      // Verify the content was set correctly
+      setTimeout(() => {
+        const items = selectedMatchesList.querySelectorAll('.match-item');
+        console.log(`Verification: Found ${items.length} match items in the DOM after update`);
+      }, 0);
     }
   } else {
-    console.error('selectedMatchesList element not found in the DOM');
+    console.error('CRITICAL ERROR: selectedMatchesList element not found in the DOM');
   }
 }
 
@@ -869,9 +989,22 @@ function handleMessage(message) {
 
     if (message.action === 'matchesUpdated') {
       // Handle updated matches list
+      console.log('Received matchesUpdated message:', message);
       if (message.matches) {
         selectedMatches = message.matches;
+        console.log(`Updated selectedMatches array with ${selectedMatches.length} matches`);
+
+        // Update the display with the new matches
         updateMatchesDisplay(selectedMatches);
+
+        // Also update the match count badge
+        const matchCountBadge = document.getElementById('matchCount');
+        if (matchCountBadge) {
+          matchCountBadge.textContent = selectedMatches.length;
+          console.log(`Updated match count badge to ${selectedMatches.length}`);
+        }
+      } else {
+        console.warn('Received matchesUpdated message with no matches');
       }
     }
     else if (message.action === 'botStatusUpdated') {

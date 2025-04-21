@@ -1214,6 +1214,32 @@ async function processBetLoop(tabId, matches, stakeAmount) {
             isFavorite: match.isFavorite
           }))
         });
+      } else if (betResult.skipped && betResult.reason === 'high_return') {
+        console.log('Bet was skipped due to high estimated return (exceeds $250,000)');
+        autoBetSession.failedBets.push({
+          timestamp: Date.now(),
+          error: 'Skipped: Estimated return exceeds $250,000',
+          skipped: true,
+          reason: 'high_return',
+          stake: stakeAmount,
+          matches: matches.map(match => ({
+            matchId: match.matchId,
+            selectedTeam: match.selectedTeam,
+            odds: match.odds,
+            isFavorite: match.isFavorite
+          }))
+        });
+
+        // Log the skipped bet
+        await logBetCombination(
+          matches,
+          stakeAmount,
+          'Single Bets',
+          matches,
+          potentialReturn,
+          'skipped',
+          0
+        );
       } else {
         console.error('Failed to place bet:', betResult.error);
         autoBetSession.failedBets.push({
@@ -1319,6 +1345,13 @@ async function placeBetInBetSlip(tabId, stakeAmount) {
 
     // 4. Click "Place Bets" button
     const placeResult = await chrome.tabs.sendMessage(tabId, { action: 'clickPlaceBets' });
+
+    // Check if the bet was skipped due to high estimated return
+    if (placeResult === false) {
+      console.log('Bet was skipped due to high estimated return');
+      return { success: false, skipped: true, reason: 'high_return' };
+    }
+
     if (!placeResult.success) {
       throw new Error('Failed to place bet: ' + (placeResult.error || 'Unknown error'));
     }

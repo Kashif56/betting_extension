@@ -1928,13 +1928,182 @@ async function enterStakeAmount(amount) {
     // Verify the value was entered
     if (stakeInput.value !== amount && stakeInput.value !== `$${amount}`) {
       console.warn(`Stake amount verification failed: expected ${amount}, got ${stakeInput.value}`);
+
+      // Try one more time with a different approach
+      console.log('Retrying stake amount entry with a different approach...');
+      stakeInput.focus();
+      stakeInput.select();
+      stakeInput.value = amount;
+      stakeInput.dispatchEvent(new Event('input', { bubbles: true }));
+      stakeInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+      // Wait again to ensure the value is updated
+      await sleep(1000);
+
+      // Check again
+      if (stakeInput.value !== amount && stakeInput.value !== `$${amount}`) {
+        console.warn(`Stake amount verification still failed after retry: expected ${amount}, got ${stakeInput.value}`);
+      } else {
+        console.log('Stake amount verification successful after retry');
+      }
     }
+
+    // Wait an additional 1 second for the estimated return to be calculated
+    console.log('Waiting for estimated return to be calculated...');
+    await sleep(1000);
 
     console.log(`Entered stake amount: ${amount}`);
     return true;
   } catch (error) {
     console.error('Error entering stake amount:', error);
     throw error;
+  }
+}
+
+// Get the estimated return value from the bet slip
+function getEstimatedReturn() {
+  try {
+    console.log('Checking estimated return value...');
+
+    // Look for the estimated return element in the footer section
+    const estimatedReturnSelectors = [
+      // Main selector from the requirement
+      'span[font-size="lg"][color="#beff85"] strong',
+      // Alternative selectors
+      'span[data-testid="estimated-return"]',
+      '[data-testid="estimated-return-container"] span:last-child',
+      '.estimated-return',
+      '.est-return-value',
+      // Additional selectors for better coverage
+      '.betslip-footer .estimated-return',
+      '.betslip-total-return',
+      '.bet-slip-total',
+      '.total-return',
+      '.potential-return',
+      '.potential-payout',
+      '.total-payout'
+    ];
+
+    let estimatedReturnElement = null;
+
+    // Try each selector
+    for (const selector of estimatedReturnSelectors) {
+      const elements = document.querySelectorAll(selector);
+      for (const element of elements) {
+        // Make sure it's visible and contains a value
+        if (element.offsetParent !== null && element.textContent.trim()) {
+          estimatedReturnElement = element;
+          console.log(`Found estimated return element with selector: ${selector}`);
+          break;
+        }
+      }
+      if (estimatedReturnElement) break;
+    }
+
+    // If not found with specific selectors, try a more general approach
+    if (!estimatedReturnElement) {
+      console.log('Trying alternative approach to find estimated return...');
+
+      // Look for elements containing text like "Est. Return" or "Potential Return"
+      const potentialElements = [];
+      const textPatterns = ['est. return', 'estimated return', 'potential return', 'total return', 'potential payout'];
+
+      // Get all visible text elements
+      const allElements = document.querySelectorAll('div, span, p, label');
+
+      for (const element of allElements) {
+        if (element.offsetParent !== null) { // Element is visible
+          const text = element.textContent.toLowerCase();
+
+          // Check if this element contains any of our patterns
+          for (const pattern of textPatterns) {
+            if (text.includes(pattern)) {
+              console.log(`Found element with text containing "${pattern}": ${text}`);
+
+              // Check if this element itself contains the value
+              const valueMatch = text.match(/[\$£€]?\s*[\d,]+\.?\d*/);
+              if (valueMatch) {
+                estimatedReturnElement = element;
+                console.log(`Element contains value: ${valueMatch[0]}`);
+                break;
+              }
+
+              // If not, add to potential elements to check siblings/children
+              potentialElements.push(element);
+            }
+          }
+
+          if (estimatedReturnElement) break;
+        }
+      }
+
+      // If still not found, check siblings and children of potential elements
+      if (!estimatedReturnElement && potentialElements.length > 0) {
+        for (const element of potentialElements) {
+          // Check siblings
+          const siblings = element.parentElement?.children || [];
+          for (const sibling of siblings) {
+            if (sibling !== element) {
+              const siblingText = sibling.textContent.trim();
+              if (siblingText.match(/[\$£€]?\s*[\d,]+\.?\d*/)) {
+                estimatedReturnElement = sibling;
+                console.log(`Found value in sibling: ${siblingText}`);
+                break;
+              }
+            }
+          }
+
+          // Check children
+          if (!estimatedReturnElement) {
+            const children = element.querySelectorAll('*');
+            for (const child of children) {
+              const childText = child.textContent.trim();
+              if (childText.match(/[\$£€]?\s*[\d,]+\.?\d*/)) {
+                estimatedReturnElement = child;
+                console.log(`Found value in child: ${childText}`);
+                break;
+              }
+            }
+          }
+
+          if (estimatedReturnElement) break;
+        }
+      }
+    }
+
+    if (!estimatedReturnElement) {
+      console.log('Estimated return element not found after exhaustive search');
+      return null;
+    }
+
+    // Extract the text content
+    const returnText = estimatedReturnElement.textContent.trim();
+    console.log(`Found estimated return text: ${returnText}`);
+
+    // Try to extract just the number part using regex
+    const valueMatch = returnText.match(/[\$£€]?\s*([\d,]+\.?\d*)/);
+    let returnValue;
+
+    if (valueMatch && valueMatch[1]) {
+      // Use the captured group which should be just the number
+      returnValue = parseFloat(valueMatch[1].replace(/,/g, ''));
+      console.log(`Extracted value using regex: ${valueMatch[1]} -> ${returnValue}`);
+    } else {
+      // Fallback to the old method
+      returnValue = parseFloat(returnText.replace(/[^0-9.]/g, ''));
+      console.log(`Extracted value using fallback method: ${returnValue}`);
+    }
+
+    if (isNaN(returnValue)) {
+      console.log('Could not parse estimated return value');
+      return null;
+    }
+
+    console.log(`Final parsed estimated return value: $${returnValue}`);
+    return returnValue;
+  } catch (error) {
+    console.error('Error getting estimated return:', error);
+    return null;
   }
 }
 
@@ -1945,6 +2114,35 @@ async function clickPlaceBets() {
 
     // Wait for the UI to be fully ready
     await sleep(1500);
+
+    // Wait an additional 1 second after UI is ready before checking estimated return
+    // This ensures the estimated return value has been updated after stake amount input
+    console.log('Waiting 1 second for estimated return to update...');
+    await sleep(1000);
+
+    // Check the estimated return value
+    console.log('Now checking estimated return value...');
+    const estimatedReturn = getEstimatedReturn();
+
+    // Define the threshold for high estimated return
+    // TESTING: Using an extremely low threshold for testing purposes
+    // const ESTIMATED_RETURN_THRESHOLD = 250000; // $250,000 in production
+    const ESTIMATED_RETURN_THRESHOLD = 0.05; // $0.05 for testing
+
+    // If the return exceeds the threshold, skip this bet
+    if (estimatedReturn !== null && estimatedReturn > ESTIMATED_RETURN_THRESHOLD) {
+      console.log(`Skipping bet with high estimated return: $${estimatedReturn} (exceeds $${ESTIMATED_RETURN_THRESHOLD.toLocaleString()} limit)`);
+
+      // Notify that we're skipping this bet
+      chrome.runtime.sendMessage({
+        action: 'betSkipped',
+        reason: 'high_return',
+        estimatedReturn: estimatedReturn
+      });
+
+      // Return false to indicate the bet was not placed
+      return false;
+    }
 
     // Array of possible Place Bets button selectors from most specific to most general
     const placeBetsButtonSelectors = [

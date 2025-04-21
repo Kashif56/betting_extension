@@ -144,6 +144,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({ status: 'Confirmed matches updated' });
     }
+    else if (message.action === 'betSkipped') {
+      // Handle skipped bet due to high estimated return
+      console.log(`Bet skipped: ${message.reason}, estimated return: $${message.estimatedReturn}`);
+
+      // Log the skipped bet
+      chrome.storage.local.get(['confirmedMatches'], async (result) => {
+        if (result.confirmedMatches && result.confirmedMatches.length > 0) {
+          // Get stake amount from storage
+          const stakeResult = await chrome.storage.local.get(['stakeAmount']);
+          const stake = stakeResult.stakeAmount || 10;
+
+          // Log the skipped bet
+          await logBetCombination(
+            result.confirmedMatches,
+            stake,
+            'Single Bets',
+            result.confirmedMatches,
+            message.estimatedReturn,
+            'skipped',
+            0
+          );
+        }
+      });
+
+      sendResponse({ status: 'success' });
+    }
     else if (message.action === 'updateBotSettings') {
       // Update bot settings
       updateBotSettings(message.settings)
@@ -773,14 +799,37 @@ async function logBetCombination(matches, stake, variationType, selections, pote
       timestamp: Date.now(),
       variationType,
       stake,
-      selections: selections.map(selection => ({
-        matchName: selection.match.name,
-        playerSelected: selection.player,
-        odds: selection.odds
-      })),
+      selections: selections.map(selection => {
+        // Handle different formats of selection data
+        if (selection.match && selection.player) {
+          // Standard format from UI
+          return {
+            matchName: selection.match.name,
+            playerSelected: selection.player,
+            odds: selection.odds
+          };
+        } else if (selection.team1 && selection.team2) {
+          // Format from auto-betting
+          return {
+            matchName: `${selection.team1} vs ${selection.team2}`,
+            playerSelected: selection.selectedTeam,
+            odds: selection.odds
+          };
+        } else {
+          // Fallback for unknown format
+          return {
+            matchName: 'Unknown Match',
+            playerSelected: selection.selectedTeam || 'Unknown Player',
+            odds: selection.odds || '1.0'
+          };
+        }
+      }),
       potentialReturn,
       result,
-      actualReturn
+      actualReturn,
+      // Add a field to indicate if the bet was skipped and why
+      skipped: result === 'skipped',
+      skippedReason: result === 'skipped' ? 'high_return' : null
     };
 
     // Add to logs
