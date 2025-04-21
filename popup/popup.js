@@ -8,8 +8,8 @@ const startAutoBettingButton = document.getElementById('startAutoBettingButton')
 const terminateAutoBettingButton = document.getElementById('terminateAutoBettingButton');
 const settingsButton = document.getElementById('settingsButton');
 const notification = document.getElementById('notification');
-const matchCountElement = document.getElementById('matchCount');
-const selectedMatchesList = document.getElementById('selectedMatchesList');
+let matchCountElement = document.getElementById('matchCount');
+let selectedMatchesList = document.getElementById('selectedMatchesList');
 const clearSelectionsButton = document.getElementById('clearSelectionsButton');
 const viewMatchesButton = document.getElementById('viewMatchesButton');
 const confirmMatchesButton = document.getElementById('confirmMatchesButton');
@@ -24,82 +24,6 @@ let maxAutoBets = 5; // Default, will be updated from background
 let isMatchesConfirmed = false;
 
 
-// Function to directly load and display matches from storage
-function loadMatchesFromStorage() {
-  console.log('Direct loading matches from storage...');
-
-  // Make sure we have the DOM elements before proceeding
-  if (!selectedMatchesList) {
-    console.error('selectedMatchesList element not found in the DOM');
-    selectedMatchesList = document.getElementById('selectedMatchesList');
-    if (!selectedMatchesList) {
-      console.error('CRITICAL ERROR: Cannot find selectedMatchesList element even after retry');
-      return;
-    }
-  }
-
-  if (!matchCountElement) {
-    console.error('matchCountElement not found in the DOM');
-    matchCountElement = document.getElementById('matchCount');
-    if (!matchCountElement) {
-      console.error('CRITICAL ERROR: Cannot find matchCount element even after retry');
-    }
-  }
-
-  chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed'], (result) => {
-    console.log('Direct storage load result:', result);
-
-    // Update local variables with storage data
-    if (result.selectedMatches) {
-      selectedMatches = result.selectedMatches;
-      console.log('Loaded selected matches:', selectedMatches.length);
-      console.log('First match data:', selectedMatches.length > 0 ? JSON.stringify(selectedMatches[0]) : 'No matches');
-    } else {
-      console.warn('No selected matches found in storage');
-      selectedMatches = [];
-    }
-
-    if (result.isMatchesConfirmed) {
-      isMatchesConfirmed = result.isMatchesConfirmed;
-
-      if (result.confirmedMatches) {
-        confirmedMatches = result.confirmedMatches;
-        console.log('Loaded confirmed matches:', confirmedMatches.length);
-        console.log('First confirmed match data:', confirmedMatches.length > 0 ? JSON.stringify(confirmedMatches[0]) : 'No confirmed matches');
-      } else {
-        console.warn('No confirmed matches found in storage despite isMatchesConfirmed being true');
-        confirmedMatches = [];
-      }
-
-      // Update UI to show confirmed status
-      if (confirmMatchesButton) {
-        confirmMatchesButton.textContent = 'Matches Confirmed';
-        confirmMatchesButton.classList.add('confirmed');
-      }
-    } else {
-      isMatchesConfirmed = false;
-      confirmedMatches = [];
-    }
-
-    // Use the matches we've loaded to update the display
-    const displayMatches = isMatchesConfirmed ? confirmedMatches : selectedMatches;
-    console.log('Display matches count:', displayMatches.length);
-
-    // Immediately update the UI
-    updateUIWithMatches(displayMatches);
-
-    // Force a second update after a short delay to handle any race conditions
-    setTimeout(() => {
-      console.log('Performing delayed UI update to ensure matches are displayed');
-      updateUIWithMatches(isMatchesConfirmed ? confirmedMatches : selectedMatches);
-    }, 500);
-  });
-}
-
-// Make functions accessible to debug scripts
-window.loadMatchesFromStorage = loadMatchesFromStorage;
-window.updateUIWithMatches = updateUIWithMatches;
-
 // Function to update UI with matches
 function updateUIWithMatches(matches) {
   console.log('Directly updating UI with', matches ? matches.length : 0, 'matches');
@@ -109,6 +33,9 @@ function updateUIWithMatches(matches) {
     console.error('Matches array is null or undefined');
     matches = [];
   }
+
+  // IMPORTANT: Make a copy of the matches array to avoid reference issues
+  matches = [...matches];
 
   // Make sure we have the DOM elements before proceeding
   if (!selectedMatchesList) {
@@ -130,7 +57,7 @@ function updateUIWithMatches(matches) {
 
   // Update count
   if (matchCountElement) {
-    matchCountElement.textContent = matches.length;
+    matchCountElement.textContent = matches.length.toString();
     console.log(`Updated match count display to ${matches.length}`);
   }
 
@@ -192,19 +119,396 @@ function updateUIWithMatches(matches) {
       console.log('Setting HTML content for matches list');
       selectedMatchesList.innerHTML = html;
 
+      // IMPORTANT: Save the matches to global variables to ensure they're not lost
+      if (matches.length > 0) {
+        if (isMatchesConfirmed) {
+          confirmedMatches = [...matches];
+        } else {
+          selectedMatches = [...matches];
+        }
+
+        // Also save to sessionStorage for persistence
+        try {
+          if (isMatchesConfirmed) {
+            sessionStorage.setItem('preservedConfirmedMatches', JSON.stringify(matches));
+          } else {
+            sessionStorage.setItem('preservedSelectedMatches', JSON.stringify(matches));
+          }
+          sessionStorage.setItem('preservedIsMatchesConfirmed', JSON.stringify(isMatchesConfirmed));
+        } catch (e) {
+          console.error('Error saving matches to sessionStorage:', e);
+        }
+      }
+
       // Verify the content was set correctly
       setTimeout(() => {
         const items = selectedMatchesList.querySelectorAll('.match-item');
         console.log(`Verification: Found ${items.length} match items in the DOM after update`);
-      }, 0);
+
+        // If no items were rendered but we have matches, try again
+        if (items.length === 0 && matches.length > 0) {
+          console.error('CRITICAL: No match items rendered despite having matches. Trying emergency update...');
+
+          // Emergency direct DOM update
+          let emergencyHtml = '';
+          matches.slice(0, 5).forEach((match, index) => {
+            const team1 = match.team1 || 'Unknown Team 1';
+            const team2 = match.team2 || 'Unknown Team 2';
+            const selectedTeam = match.selectedTeam || 'Unknown Selection';
+            const odds = match.odds || '0.00';
+
+            emergencyHtml += `
+              <div class="match-item" data-match-id="${match.matchId || index}">
+                <div class="match-teams">${team1} vs ${team2}</div>
+                <div class="match-odds">Selected: ${selectedTeam} (${odds})</div>
+              </div>
+            `;
+          });
+
+          if (matches.length > 5) {
+            emergencyHtml += `<div class="match-item">+ ${matches.length - 5} more matches...</div>`;
+          }
+
+          selectedMatchesList.innerHTML = emergencyHtml;
+          console.log('Emergency DOM update completed');
+        }
+      }, 50);
     }
   } else {
     console.error('CRITICAL ERROR: selectedMatchesList element not found when directly updating UI');
   }
 }
 
+// Function to directly load and display matches from storage
+function loadMatchesFromStorage() {
+  console.log('Direct loading matches from storage...');
+
+  // Make sure we have the DOM elements before proceeding
+  if (!selectedMatchesList) {
+    console.error('selectedMatchesList element not found in the DOM');
+    selectedMatchesList = document.getElementById('selectedMatchesList');
+    if (!selectedMatchesList) {
+      console.error('CRITICAL ERROR: Cannot find selectedMatchesList element even after retry');
+      return;
+    }
+  }
+
+  if (!matchCountElement) {
+    console.error('matchCountElement not found in the DOM');
+    matchCountElement = document.getElementById('matchCount');
+    if (!matchCountElement) {
+      console.error('CRITICAL ERROR: Cannot find matchCount element even after retry');
+    }
+  }
+
+  // Debug: Log all storage data to help diagnose issues
+  chrome.storage.local.get(null, (allData) => {
+    console.log('All storage data:', allData);
+  });
+
+  chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed'], (result) => {
+    console.log('Direct storage load result:', result);
+
+    // Update local variables with storage data
+    if (result.selectedMatches) {
+      // Make sure we're creating a new array to avoid reference issues
+      selectedMatches = [...result.selectedMatches];
+      console.log('Loaded selected matches:', selectedMatches.length);
+      console.log('First match data:', selectedMatches.length > 0 ? JSON.stringify(selectedMatches[0]) : 'No matches');
+    } else {
+      console.warn('No selected matches found in storage');
+      selectedMatches = [];
+    }
+
+    if (result.isMatchesConfirmed) {
+      isMatchesConfirmed = result.isMatchesConfirmed;
+
+      if (result.confirmedMatches) {
+        // Make sure we're creating a new array to avoid reference issues
+        confirmedMatches = [...result.confirmedMatches];
+        console.log('Loaded confirmed matches:', confirmedMatches.length);
+        console.log('First confirmed match data:', confirmedMatches.length > 0 ? JSON.stringify(confirmedMatches[0]) : 'No confirmed matches');
+      } else {
+        console.warn('No confirmed matches found in storage despite isMatchesConfirmed being true');
+        confirmedMatches = [];
+      }
+
+      // Update UI to show confirmed status
+      if (confirmMatchesButton) {
+        confirmMatchesButton.textContent = 'Matches Confirmed';
+        confirmMatchesButton.classList.add('confirmed');
+      }
+    } else {
+      isMatchesConfirmed = false;
+      confirmedMatches = [];
+    }
+
+    // Make the variables available for debugging
+    // @ts-ignore - These are for debugging purposes
+    window.selectedMatchesDebug = [...selectedMatches];
+    // @ts-ignore - These are for debugging purposes
+    window.confirmedMatchesDebug = [...confirmedMatches];
+    // @ts-ignore - These are for debugging purposes
+    window.isMatchesConfirmedDebug = isMatchesConfirmed;
+
+    // Use the matches we've loaded to update the display
+    const displayMatches = isMatchesConfirmed ? confirmedMatches : selectedMatches;
+    console.log('Display matches count:', displayMatches.length);
+
+    // Immediately update the UI
+    updateUIWithMatches(displayMatches);
+
+    // Force a second update after a short delay to handle any race conditions
+    setTimeout(() => {
+      console.log('Performing delayed UI update to ensure matches are displayed');
+      updateUIWithMatches(isMatchesConfirmed ? confirmedMatches : selectedMatches);
+    }, 500);
+  });
+}
+
+// Debug function to force reload matches from storage
+function debugForceReloadMatches() {
+  console.log('DEBUG: Force reloading matches from storage');
+
+  // First check sessionStorage for preserved matches
+  console.log('Checking sessionStorage for preserved matches...');
+  try {
+    const preservedSelectedMatches = sessionStorage.getItem('preservedSelectedMatches');
+    const preservedConfirmedMatches = sessionStorage.getItem('preservedConfirmedMatches');
+    const preservedIsMatchesConfirmed = sessionStorage.getItem('preservedIsMatchesConfirmed');
+
+    console.log('SessionStorage data:');
+    console.log('- preservedSelectedMatches:', preservedSelectedMatches ? JSON.parse(preservedSelectedMatches).length : 0);
+    console.log('- preservedConfirmedMatches:', preservedConfirmedMatches ? JSON.parse(preservedConfirmedMatches).length : 0);
+    console.log('- preservedIsMatchesConfirmed:', preservedIsMatchesConfirmed);
+  } catch (e) {
+    console.error('Error checking sessionStorage:', e);
+  }
+
+  // Get all storage data
+  chrome.storage.local.get(null, (allData) => {
+    console.log('All chrome.storage.local data:', allData);
+
+    // Extract matches
+    const storedSelectedMatches = allData.selectedMatches || [];
+    const storedConfirmedMatches = allData.confirmedMatches || [];
+    const storedIsMatchesConfirmed = allData.isMatchesConfirmed || false;
+
+    console.log('Selected matches in storage:', storedSelectedMatches.length);
+    if (storedSelectedMatches.length > 0) {
+      console.log('First match in storage:', JSON.stringify(storedSelectedMatches[0]));
+    }
+    console.log('Confirmed matches in storage:', storedConfirmedMatches.length);
+    console.log('Is matches confirmed in storage:', storedIsMatchesConfirmed);
+
+    // Check in-memory matches
+    console.log('Current in-memory matches:');
+    console.log('- selectedMatches:', selectedMatches ? selectedMatches.length : 0);
+    console.log('- confirmedMatches:', confirmedMatches ? confirmedMatches.length : 0);
+    console.log('- isMatchesConfirmed:', isMatchesConfirmed);
+
+    // Use the best available matches (prefer in-memory, then storage)
+    const finalSelectedMatches = selectedMatches.length > 0 ? selectedMatches : storedSelectedMatches;
+    const finalConfirmedMatches = confirmedMatches.length > 0 ? confirmedMatches : storedConfirmedMatches;
+    const finalIsMatchesConfirmed = isMatchesConfirmed !== undefined ? isMatchesConfirmed : storedIsMatchesConfirmed;
+
+    // Update global variables directly
+    selectedMatches = finalSelectedMatches;
+    confirmedMatches = finalConfirmedMatches;
+    isMatchesConfirmed = finalIsMatchesConfirmed;
+
+    // Update debug variables
+    // @ts-ignore - These are for debugging purposes
+    window.selectedMatchesDebug = finalSelectedMatches;
+    // @ts-ignore - These are for debugging purposes
+    window.confirmedMatchesDebug = finalConfirmedMatches;
+    // @ts-ignore - These are for debugging purposes
+    window.isMatchesConfirmedDebug = finalIsMatchesConfirmed;
+
+    // Force update UI
+    const displayMatches = isMatchesConfirmed ? confirmedMatches : selectedMatches;
+    console.log('Display matches count:', displayMatches.length);
+
+    // Force clear and update the UI
+    if (selectedMatchesList) {
+      // First clear the list
+      selectedMatchesList.innerHTML = '';
+
+      // Then update with matches
+      updateUIWithMatches(displayMatches);
+    } else {
+      console.error('selectedMatchesList element not found');
+      // Try to get the element again
+      const listElement = document.getElementById('selectedMatchesList');
+      if (listElement) {
+        selectedMatchesList = listElement;
+        updateUIWithMatches(displayMatches);
+      } else {
+        showNotification('Error: Could not find matches list element', 'error');
+      }
+    }
+
+    // Update match count
+    if (matchCountElement) {
+      matchCountElement.textContent = displayMatches.length.toString();
+    } else {
+      console.error('matchCountElement not found');
+      // Try to get the element again
+      const countElement = document.getElementById('matchCount');
+      if (countElement) {
+        matchCountElement = countElement;
+        matchCountElement.textContent = displayMatches.length.toString();
+      }
+    }
+
+    // Save the matches back to storage to ensure consistency
+    chrome.storage.local.set({
+      selectedMatches: selectedMatches,
+      confirmedMatches: confirmedMatches,
+      isMatchesConfirmed: isMatchesConfirmed
+    }, () => {
+      console.log('Saved matches back to storage for consistency');
+    });
+
+    // Also preserve in sessionStorage
+    preserveMatches();
+
+    // Show notification
+    showNotification(`Loaded ${displayMatches.length} matches from storage`, 'info');
+  });
+}
+
+// Make functions accessible to debug scripts
+window.loadMatchesFromStorage = loadMatchesFromStorage;
+window.updateUIWithMatches = updateUIWithMatches;
+window.debugForceReloadMatches = debugForceReloadMatches;
+
+// Add event listener for when the popup is about to close
+window.addEventListener('beforeunload', () => {
+  console.log('Popup is closing, preserving matches...');
+  preserveMatches();
+});
+
+// Also preserve matches periodically
+setInterval(() => {
+  preserveMatches();
+}, 5000); // Every 5 seconds
+
+// Function to preserve matches in memory
+function preserveMatches() {
+  // Store the current matches in sessionStorage to prevent them from being lost
+  if (selectedMatches && selectedMatches.length > 0) {
+    try {
+      sessionStorage.setItem('preservedSelectedMatches', JSON.stringify(selectedMatches));
+      console.log(`Preserved ${selectedMatches.length} selected matches in sessionStorage`);
+    } catch (e) {
+      console.error('Error preserving selected matches:', e);
+    }
+  }
+
+  if (confirmedMatches && confirmedMatches.length > 0) {
+    try {
+      sessionStorage.setItem('preservedConfirmedMatches', JSON.stringify(confirmedMatches));
+      console.log(`Preserved ${confirmedMatches.length} confirmed matches in sessionStorage`);
+    } catch (e) {
+      console.error('Error preserving confirmed matches:', e);
+    }
+  }
+
+  if (isMatchesConfirmed !== undefined) {
+    try {
+      sessionStorage.setItem('preservedIsMatchesConfirmed', JSON.stringify(isMatchesConfirmed));
+    } catch (e) {
+      console.error('Error preserving isMatchesConfirmed flag:', e);
+    }
+  }
+}
+
+// Function to restore preserved matches
+function restorePreservedMatches() {
+  try {
+    const preservedSelectedMatches = sessionStorage.getItem('preservedSelectedMatches');
+    if (preservedSelectedMatches) {
+      const parsedMatches = JSON.parse(preservedSelectedMatches);
+      if (parsedMatches && parsedMatches.length > 0) {
+        console.log(`Restored ${parsedMatches.length} selected matches from sessionStorage`);
+        selectedMatches = parsedMatches;
+      }
+    }
+
+    const preservedConfirmedMatches = sessionStorage.getItem('preservedConfirmedMatches');
+    if (preservedConfirmedMatches) {
+      const parsedMatches = JSON.parse(preservedConfirmedMatches);
+      if (parsedMatches && parsedMatches.length > 0) {
+        console.log(`Restored ${parsedMatches.length} confirmed matches from sessionStorage`);
+        confirmedMatches = parsedMatches;
+      }
+    }
+
+    const preservedIsMatchesConfirmed = sessionStorage.getItem('preservedIsMatchesConfirmed');
+    if (preservedIsMatchesConfirmed) {
+      isMatchesConfirmed = JSON.parse(preservedIsMatchesConfirmed);
+    }
+
+    // Update the UI with the restored matches
+    if ((selectedMatches && selectedMatches.length > 0) || (confirmedMatches && confirmedMatches.length > 0)) {
+      const displayMatches = isMatchesConfirmed ? confirmedMatches : selectedMatches;
+      if (displayMatches && displayMatches.length > 0) {
+        console.log(`Updating UI with ${displayMatches.length} restored matches`);
+        updateMatchesDisplay(displayMatches);
+      }
+    }
+  } catch (e) {
+    console.error('Error restoring preserved matches:', e);
+  }
+}
+
 // Load saved settings
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('DOM content loaded - initializing popup');
+
+  // Ensure DOM elements are available
+  selectedMatchesList = document.getElementById('selectedMatchesList');
+  matchCountElement = document.getElementById('matchCount');
+
+  if (!selectedMatchesList) {
+    console.error('CRITICAL: selectedMatchesList element not found on DOMContentLoaded');
+  }
+
+  if (!matchCountElement) {
+    console.error('CRITICAL: matchCountElement not found on DOMContentLoaded');
+  }
+
+  // IMPORTANT: First directly check chrome.storage.local for matches
+  // This is the most reliable source of truth
+  chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed'], (result) => {
+    console.log('Initial storage check result:', result);
+
+    // Update global variables with storage data
+    if (result.selectedMatches && result.selectedMatches.length > 0) {
+      selectedMatches = [...result.selectedMatches];
+      console.log(`Found ${selectedMatches.length} selected matches in storage`);
+    }
+
+    if (result.confirmedMatches && result.confirmedMatches.length > 0) {
+      confirmedMatches = [...result.confirmedMatches];
+      console.log(`Found ${confirmedMatches.length} confirmed matches in storage`);
+    }
+
+    if (result.isMatchesConfirmed !== undefined) {
+      isMatchesConfirmed = result.isMatchesConfirmed;
+    }
+
+    // Immediately update the UI with the matches we found
+    const displayMatches = isMatchesConfirmed ? confirmedMatches : selectedMatches;
+    if (displayMatches && displayMatches.length > 0) {
+      console.log(`Immediately displaying ${displayMatches.length} matches from storage`);
+      updateUIWithMatches(displayMatches);
+    }
+  });
+
+  // Try to restore any preserved matches as a backup
+  restorePreservedMatches();
   try {
     console.log('DOM loaded, initializing popup...');
 
@@ -241,6 +545,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.log('Match data changed in storage, updating UI...');
           // Reload matches from storage when they change
           loadMatchesFromStorage();
+
+          // Add a second attempt after a short delay to ensure UI updates
+          setTimeout(() => {
+            console.log('Performing delayed match load after storage change');
+            loadMatchesFromStorage();
+          }, 300);
         }
       }
     });
@@ -326,6 +636,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       resetButton.addEventListener('click', resetExtension);
     }
 
+    // Add event listener for debug button
+    const debugButton = document.getElementById('debugButton');
+    if (debugButton) {
+      debugButton.addEventListener('click', debugForceReloadMatches);
+    }
+
     console.log('Popup initialized with UI elements:', {
       startStopButton: !!startStopButton,
       statusText: !!statusText,
@@ -338,6 +654,81 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => {
       console.log('Performing delayed match load to ensure matches are displayed');
       loadMatchesFromStorage();
+
+      // IMPORTANT: Directly check if matches are displayed in the DOM
+      const matchItems = document.querySelectorAll('.match-item');
+      console.log(`After delayed load: Found ${matchItems.length} match items in DOM`);
+
+      if (matchItems.length === 0 && selectedMatches.length > 0) {
+        console.log('No match items in DOM despite having matches in memory, forcing display...');
+        updateMatchesDisplay(selectedMatches);
+      }
+    }, 500);
+
+    // And a third attempt after a longer delay
+    setTimeout(() => {
+      console.log('Performing final delayed match load to ensure matches are displayed');
+      loadMatchesFromStorage();
+
+      // Debug: Check if matches are actually in storage
+      chrome.storage.local.get(['selectedMatches', 'confirmedMatches'], (result) => {
+        console.log('DEBUG - Final check of matches in storage:');
+        console.log('Selected matches:', result.selectedMatches ? result.selectedMatches.length : 0);
+        console.log('Confirmed matches:', result.confirmedMatches ? result.confirmedMatches.length : 0);
+
+        // If we have matches but they're not showing, force update the UI directly
+        const matchesToShow = result.confirmedMatches && result.confirmedMatches.length > 0 ?
+          result.confirmedMatches : (result.selectedMatches || []);
+
+        if (matchesToShow.length > 0) {
+          console.log('Forcing direct UI update with available matches:', matchesToShow.length);
+          updateUIWithMatches(matchesToShow);
+
+          // Check if the UI was actually updated
+          setTimeout(() => {
+            const matchItems = document.querySelectorAll('.match-item');
+            console.log(`After final update: Found ${matchItems.length} match items in the DOM`);
+
+            if (matchItems.length === 0) {
+              console.log('CRITICAL: Still no match items in DOM despite having matches in storage. Trying emergency update...');
+
+              // Emergency direct DOM update
+              const matchesList = document.getElementById('selectedMatchesList');
+              if (matchesList) {
+                let html = '';
+                matchesToShow.slice(0, 5).forEach((match, index) => {
+                  const team1 = match.team1 || 'Unknown Team 1';
+                  const team2 = match.team2 || 'Unknown Team 2';
+                  const selectedTeam = match.selectedTeam || 'Unknown Selection';
+                  const odds = match.odds || '0.00';
+
+                  html += `
+                    <div class="match-item" data-match-id="${match.matchId || index}">
+                      <div class="match-teams">${team1} vs ${team2}</div>
+                      <div class="match-odds">Selected: ${selectedTeam} (${odds})</div>
+                    </div>
+                  `;
+                });
+
+                if (matchesToShow.length > 5) {
+                  html += `<div class="match-item">+ ${matchesToShow.length - 5} more matches...</div>`;
+                }
+
+                matchesList.innerHTML = html;
+                console.log('Emergency DOM update completed');
+
+                // Update match count
+                const countElement = document.getElementById('matchCount');
+                if (countElement) {
+                  countElement.textContent = matchesToShow.length.toString();
+                }
+
+                showNotification(`Emergency loaded ${matchesToShow.length} matches`, 'info');
+              }
+            }
+          }, 200);
+        }
+      });
     }, 1000);
 
     // Debug button removed
@@ -430,10 +821,17 @@ async function saveSettings() {
 }
 
 function updateStatus() {
-  statusText.textContent = isRunning ? 'Running' : 'Inactive';
-  statusText.style.color = isRunning ? '#4CAF50' : '#f44336';
-  startBtn.disabled = isRunning;
-  stopBtn.disabled = !isRunning;
+  if (statusText) {
+    statusText.textContent = isRunning ? 'Running' : 'Inactive';
+    statusText.style.color = isRunning ? '#4CAF50' : '#f44336';
+  }
+
+  // The startBtn and stopBtn variables don't exist in the current HTML
+  // Instead, we should use startStopButton which is defined at the top
+  if (startStopButton) {
+    startStopButton.textContent = isRunning ? 'Stop Bot' : 'Start Bot';
+    startStopButton.className = isRunning ? 'button stop' : 'button start';
+  }
 }
 
 // Load selected matches from storage
@@ -478,102 +876,26 @@ function updateMatchesDisplay(matches) {
     matches = [];
   }
 
-  // Make sure we have the DOM elements before proceeding
-  if (!selectedMatchesList) {
-    console.error('selectedMatchesList element not found in the DOM');
-    selectedMatchesList = document.getElementById('selectedMatchesList');
-    if (!selectedMatchesList) {
-      console.error('CRITICAL ERROR: Cannot find selectedMatchesList element even after retry');
-      return;
-    }
-  }
-
-  if (!matchCountElement) {
-    console.error('matchCountElement not found in the DOM');
-    matchCountElement = document.getElementById('matchCount');
-    if (!matchCountElement) {
-      console.error('CRITICAL ERROR: Cannot find matchCount element even after retry');
-    }
-  }
-
   // Use confirmed matches if they exist and matches are confirmed
   const displayMatches = isMatchesConfirmed ? confirmedMatches : matches;
   console.log('Display matches:', displayMatches.length, 'isMatchesConfirmed:', isMatchesConfirmed);
 
-  // Update count
-  if (matchCountElement) {
-    matchCountElement.textContent = displayMatches.length;
-    console.log(`Updated match count display to ${displayMatches.length}`);
-  }
+  // Use the common updateUIWithMatches function to ensure consistent display
+  updateUIWithMatches(displayMatches);
 
-  // Update matches list
-  if (selectedMatchesList) {
-    console.log('Updating selectedMatchesList element');
+  // Add a verification check after a short delay
+  setTimeout(() => {
+    if (selectedMatchesList) {
+      const items = selectedMatchesList.querySelectorAll('.match-item');
+      console.log(`Verification: Found ${items.length} match items in the DOM after updateMatchesDisplay`);
 
-    if (!displayMatches || displayMatches.length === 0) {
-      selectedMatchesList.innerHTML = '<p class="no-matches">No matches selected</p>';
-
-      // Disable buttons that require matches
-      if (viewMatchesButton) viewMatchesButton.disabled = true;
-      if (clearSelectionsButton) clearSelectionsButton.disabled = true;
-      if (confirmMatchesButton) confirmMatchesButton.disabled = true;
-
-      console.log('No matches to display');
-    } else {
-      // Enable buttons
-      if (viewMatchesButton) viewMatchesButton.disabled = false;
-      if (clearSelectionsButton) clearSelectionsButton.disabled = isMatchesConfirmed;
-      if (confirmMatchesButton) confirmMatchesButton.disabled = false;
-
-      console.log('Displaying', displayMatches.length, 'matches');
-
-      // Display matches
-      let html = '';
-
-      displayMatches.slice(0, 5).forEach((match, index) => {
-        try {
-          // Safety checks for incomplete match data
-          const team1 = match.team1 || 'Unknown Team 1';
-          const team2 = match.team2 || 'Unknown Team 2';
-          const selectedTeam = match.selectedTeam || 'Unknown Selection';
-          const odds = match.odds || '0.00';
-          const status = isMatchesConfirmed ? '<span class="confirmed-badge">Confirmed</span>' : '';
-
-          html += `
-            <div class="match-item" data-match-id="${match.matchId || index}">
-              <div class="match-teams">${team1} vs ${team2} ${status}</div>
-              <div class="match-odds">Selected: ${selectedTeam} (${odds})</div>
-            </div>
-          `;
-          console.log(`Added match to display: ${team1} vs ${team2}, selected: ${selectedTeam}`);
-        } catch (err) {
-          console.error('Error processing match data:', err, match);
-        }
-      });
-
-      // If there are more than 5 matches, show count of remaining
-      if (displayMatches.length > 5) {
-        html += `<div class="match-item">+ ${displayMatches.length - 5} more matches...</div>`;
-        console.log(`Added message for ${displayMatches.length - 5} additional matches`);
+      // If no items were rendered but we have matches, try direct update again
+      if (items.length === 0 && displayMatches.length > 0) {
+        console.log('No items rendered despite having matches. Trying direct update again.');
+        updateUIWithMatches(displayMatches);
       }
-
-      if (html === '') {
-        html = '<p class="no-matches">Error displaying matches data</p>';
-        console.error('Generated HTML was empty, using error message instead');
-      }
-
-      console.log('Generated HTML for matches:', html.substring(0, 100) + '...');
-      selectedMatchesList.innerHTML = html;
-
-      // Verify the content was set correctly
-      setTimeout(() => {
-        const items = selectedMatchesList.querySelectorAll('.match-item');
-        console.log(`Verification: Found ${items.length} match items in the DOM after update`);
-      }, 0);
     }
-  } else {
-    console.error('CRITICAL ERROR: selectedMatchesList element not found in the DOM');
-  }
+  }, 100);
 }
 
 // Clear all selections
@@ -593,7 +915,14 @@ async function clearSelections() {
     updateMatchesDisplay([]);
 
     // Notify background script to update badge
-    chrome.runtime.sendMessage({ action: 'matchesUpdated', matches: [] });
+    chrome.runtime.sendMessage({ action: 'matchesUpdated', matches: [] }, (response) => {
+      console.log('Badge update response:', response);
+    });
+
+    // Also update the match count badge in the popup
+    if (matchCountElement) {
+      matchCountElement.textContent = '0';
+    }
 
     console.log('Selections cleared');
   } catch (error) {
@@ -991,8 +1320,14 @@ function handleMessage(message) {
       // Handle updated matches list
       console.log('Received matchesUpdated message:', message);
       if (message.matches) {
-        selectedMatches = message.matches;
+        // Make a copy of the matches array to avoid reference issues
+        selectedMatches = [...message.matches];
         console.log(`Updated selectedMatches array with ${selectedMatches.length} matches`);
+
+        // If we have match data, log the first match
+        if (selectedMatches.length > 0) {
+          console.log('First match data:', JSON.stringify(selectedMatches[0]));
+        }
 
         // Update the display with the new matches
         updateMatchesDisplay(selectedMatches);
@@ -1000,9 +1335,18 @@ function handleMessage(message) {
         // Also update the match count badge
         const matchCountBadge = document.getElementById('matchCount');
         if (matchCountBadge) {
-          matchCountBadge.textContent = selectedMatches.length;
+          matchCountBadge.textContent = selectedMatches.length.toString();
           console.log(`Updated match count badge to ${selectedMatches.length}`);
         }
+
+        // Make the updated matches available for debugging
+        // @ts-ignore - These are for debugging purposes
+        window.selectedMatchesDebug = [...selectedMatches];
+
+        // Force a storage save to ensure consistency
+        chrome.storage.local.set({ selectedMatches: selectedMatches }, () => {
+          console.log('Saved selectedMatches to storage after message update');
+        });
       } else {
         console.warn('Received matchesUpdated message with no matches');
       }
@@ -1169,6 +1513,18 @@ async function updateBotStatus(isRunning = null) {
   try {
     console.log('updateBotStatus called with:', isRunning);
 
+    // IMPORTANT: Save current matches before updating status
+    // This prevents them from being lost during status updates
+    const currentSelectedMatches = [...selectedMatches];
+    const currentConfirmedMatches = [...confirmedMatches];
+    const currentIsMatchesConfirmed = isMatchesConfirmed;
+
+    console.log('Saved current matches before status update:', {
+      selectedMatches: currentSelectedMatches.length,
+      confirmedMatches: currentConfirmedMatches.length,
+      isMatchesConfirmed: currentIsMatchesConfirmed
+    });
+
     if (isRunning === null) {
       // Get status from background script
       const response = await chrome.runtime.sendMessage({ action: 'getBotStatus' });
@@ -1182,15 +1538,45 @@ async function updateBotStatus(isRunning = null) {
       }
     }
 
-    if (startStopButton && statusText) {
+    // Store the current running state
+    window.isRunning = isRunning;
+
+    // Update UI elements if they exist
+    if (startStopButton) {
       startStopButton.textContent = isRunning ? 'Stop Bot' : 'Start Bot';
       startStopButton.className = isRunning ? 'button stop' : 'button start';
-      statusText.textContent = isRunning ? 'Bot is running' : 'Bot is stopped';
-
-      console.log('Updated UI with bot status:', isRunning);
-    } else {
-      console.error('UI elements not found:', { button: !!startStopButton, statusText: !!statusText });
     }
+
+    if (statusText) {
+      statusText.textContent = isRunning ? 'Bot is running' : 'Bot is stopped';
+    }
+
+    console.log('Updated UI with bot status:', isRunning);
+
+    // IMPORTANT: Restore matches after status update
+    // This ensures they aren't lost during the update
+    selectedMatches = currentSelectedMatches;
+    confirmedMatches = currentConfirmedMatches;
+    isMatchesConfirmed = currentIsMatchesConfirmed;
+
+    console.log('Restored matches after status update:', {
+      selectedMatches: selectedMatches.length,
+      confirmedMatches: confirmedMatches.length,
+      isMatchesConfirmed: isMatchesConfirmed
+    });
+
+    // Important: Check if we need to reload matches after status update
+    // This ensures matches aren't cleared when bot status changes
+    setTimeout(() => {
+      const matchItems = document.querySelectorAll('.match-item');
+      const matchCount = selectedMatches.length;
+      console.log(`After bot status update: Found ${matchItems.length} match items in DOM, have ${matchCount} matches in memory`);
+
+      if (matchItems.length === 0 && matchCount > 0) {
+        console.log('Matches disappeared after bot status update, reloading them...');
+        updateMatchesDisplay(selectedMatches);
+      }
+    }, 100);
   } catch (error) {
     console.error('Error updating bot status:', error);
   }

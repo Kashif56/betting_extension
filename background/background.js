@@ -18,9 +18,6 @@ let delay = 1000; // Default delay
 let selectedMatches = [];
 let confirmedMatches = []; // Add variable to track confirmed matches
 
-// We'll only use single bets but with different player selections
-const betVariations = ['Single Bets'];
-
 // Keep track of previous selections to avoid duplicates
 let previousSelections = [];
 
@@ -34,7 +31,7 @@ chrome.runtime.onInstalled.addListener(() => {
     delay: 1000,
     selectedMatches: [],
     confirmedMatches: [],
-    stakeAmount: 10,
+    stakeAmount: 0.06,
     favoritesCount: 0,
     underdogsCount: 0,
     betVariationActive: false,
@@ -81,17 +78,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return true; // Keep messaging channel open for async response
     }
-    else if (message.action === 'startBetVariations') {
-      const { matches, stake, favoritesCount, underdogsCount } = message;
-      startBetVariations(matches, stake, favoritesCount, underdogsCount)
-        .then(result => sendResponse({ status: 'success', result }))
-        .catch(error => sendResponse({ status: 'error', error: error.message }));
-      return true; // Keep messaging channel open for async response
-    }
-    else if (message.action === 'stopBetVariations') {
-      stopBetVariations();
-      sendResponse({ status: 'success' });
-    }
+
     // New message handlers for auto betting
     else if (message.action === 'startAutoBetting') {
       const { stake } = message;
@@ -248,125 +235,7 @@ function updateBadge() {
   }
 }
 
-// Start bet variations
-async function startBetVariations(matches, stake, favoritesCount, underdogsCount) {
-  try {
-    // If already running, stop it first
-    if (betVariationInterval) {
-      stopBetVariations();
-    }
 
-    console.log(`Starting bet variations with ${matches.length} matches, $${stake} stake, ${favoritesCount} favorites, ${underdogsCount} underdogs`);
-
-    // Reset previous selections when starting a new session
-    await chrome.storage.local.set({ previousSelections: [] });
-    previousSelections = [];
-
-    // Initialize a counter for failed attempts
-    let failedAttempts = 0;
-
-    // Set bet variation active
-    await chrome.storage.local.set({ betVariationActive: true });
-
-    // Start the bet variation loop
-    betVariationInterval = setInterval(async () => {
-      try {
-        // Check if variations are still active
-        const status = await chrome.storage.local.get(['betVariationActive', 'confirmedMatches', 'previousSelections', 'favoritesCount', 'underdogsCount']);
-        if (!status.betVariationActive) {
-          stopBetVariations();
-          return;
-        }
-
-        // Get the latest confirmed matches and settings
-        const currentMatches = status.confirmedMatches || matches;
-        const currentPreviousSelections = status.previousSelections || [];
-        const currentFavoritesCount = status.favoritesCount || favoritesCount;
-        const currentUnderdogsCount = status.underdogsCount || underdogsCount;
-
-        if (currentMatches.length === 0) {
-          console.log('No matches available for betting');
-          return;
-        }
-
-        // Calculate total possible combinations using user-specified counts
-        const totalPossibleCombinations = calculateLocalCombinations(currentMatches, currentFavoritesCount, currentUnderdogsCount);
-
-        // Log detailed information about the current state
-        const nonLiveMatches = currentMatches.filter(match => !match.isLive);
-        const favorites = nonLiveMatches.filter(match => match.isFavorite);
-        const underdogs = nonLiveMatches.filter(match => !match.isFavorite);
-        console.log(`Current state: ${nonLiveMatches.length} non-live matches (${favorites.length} favorites, ${underdogs.length} underdogs)`);
-        console.log(`Target selection: ${currentFavoritesCount} favorites, ${currentUnderdogsCount} underdogs`);
-        console.log(`Combinations tried: ${currentPreviousSelections.length} out of ${totalPossibleCombinations} possible`);
-
-        // Check if we've tried all possible combinations
-        if (currentPreviousSelections.length >= totalPossibleCombinations) {
-          console.log(`All possible combinations (${totalPossibleCombinations}) have been tried. Stopping bet variations.`);
-          stopBetVariations();
-
-          // Notify any open pages that all combinations have been tried
-          chrome.runtime.sendMessage({
-            action: 'allCombinationsTried',
-            totalCombinations: totalPossibleCombinations
-          });
-          return;
-        }
-
-        // Always use Single Bets variation type
-        const variationType = 'Single Bets';
-        const variationIndex = 0;
-
-        console.log(`Placing bet with random player selection (${currentPreviousSelections.length}/${totalPossibleCombinations} combinations tried)`);
-
-        // Try to place a bet with the current matches
-        // If it returns false, it means this combination was already used
-        // We'll try again on the next interval
-        const success = await placeBet(currentMatches, stake, variationType, variationIndex);
-
-        if (success) {
-          // Reset failed attempts counter on success
-          failedAttempts = 0;
-
-          // Notify any open pages about the update
-          chrome.runtime.sendMessage({
-            action: 'betVariationUpdated',
-            variationIndex: variationIndex
-          });
-        } else {
-          // Increment failed attempts counter
-          failedAttempts++;
-          console.log(`Failed attempt #${failedAttempts} to generate a unique combination`);
-
-          // If we've had too many failed attempts in a row, it might mean we're stuck
-          if (failedAttempts >= 10) {
-            console.log(`Had ${failedAttempts} failed attempts in a row. This might indicate we've tried all practical combinations.`);
-            console.log(`Current combinations tried: ${currentPreviousSelections.length} out of ${totalPossibleCombinations} theoretical combinations.`);
-
-            // Reset the counter to avoid stopping too early
-            failedAttempts = 0;
-          }
-        }
-      } catch (error) {
-        console.error('Error in bet variation interval:', error);
-      }
-    }, 5000); // Every 5 seconds
-  } catch (error) {
-    console.error('Error starting bet variations:', error);
-  }
-}
-
-// Stop bet variations
-function stopBetVariations() {
-  if (betVariationInterval) {
-    clearInterval(betVariationInterval);
-    betVariationInterval = null;
-    console.log('Bet variations stopped');
-
-    // Set bet variation inactive
-    chrome.storage.local.set({ betVariationActive: false });
-  }
-}
 
 // Place a bet with player selection using user-specified favorites and underdogs counts
 async function placeBet(allMatches, stake, variationType, variationIndex) {

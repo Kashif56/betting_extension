@@ -998,6 +998,7 @@ async function saveMatchData(matchData, updateGlobalArray = true) {
 
     // Also save to storage
     await chrome.storage.local.set({ selectedMatches });
+    console.log('Match data saved to storage and global array');
   } catch (error) {
     console.error('Error saving match data:', error);
   }
