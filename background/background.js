@@ -646,9 +646,16 @@ function calculateLocalCombinations(matches, favoritesCount, underdogsCount) {
   // Total number of unique matches
   const totalUniqueMatches = uniqueMatchIds.size;
 
-  // The total of favorites and underdogs must not exceed the number of matches
-  if (favoritesCount + underdogsCount > totalUniqueMatches) {
-    console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) exceeds available matches (${totalUniqueMatches})`);
+  // If one count is specified but the other is not, calculate the other
+  if (favoritesCount !== undefined && underdogsCount === undefined) {
+    underdogsCount = totalUniqueMatches - favoritesCount;
+  } else if (favoritesCount === undefined && underdogsCount !== undefined) {
+    favoritesCount = totalUniqueMatches - underdogsCount;
+  }
+
+  // The total of favorites and underdogs must equal the number of matches
+  if (favoritesCount + underdogsCount !== totalUniqueMatches) {
+    console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) must equal available matches (${totalUniqueMatches})`);
     return 0;
   }
 

@@ -29,35 +29,35 @@ function loadMatchesFromStorage() {
   console.log('Direct loading matches from storage...');
 
 
-  
+
   chrome.storage.local.get(['selectedMatches', 'confirmedMatches', 'isMatchesConfirmed'], (result) => {
     console.log('Direct storage load result:', result);
-    
+
     // Update local variables with storage data
     if (result.selectedMatches) {
       selectedMatches = result.selectedMatches;
       console.log('Loaded selected matches:', selectedMatches.length);
     }
-    
+
     if (result.isMatchesConfirmed) {
       isMatchesConfirmed = result.isMatchesConfirmed;
-      
+
       if (result.confirmedMatches) {
         confirmedMatches = result.confirmedMatches;
         console.log('Loaded confirmed matches:', confirmedMatches.length);
       }
-      
+
       // Update UI to show confirmed status
       if (confirmMatchesButton) {
         confirmMatchesButton.textContent = 'Matches Confirmed';
         confirmMatchesButton.classList.add('confirmed');
       }
     }
-    
+
     // Use the matches we've loaded to update the display
     const displayMatches = isMatchesConfirmed ? confirmedMatches : selectedMatches;
     console.log('Display matches count:', displayMatches.length);
-    
+
     // Immediately update the UI
     updateUIWithMatches(displayMatches);
   });
@@ -70,17 +70,17 @@ window.updateUIWithMatches = updateUIWithMatches;
 // Function to update UI with matches
 function updateUIWithMatches(matches) {
   console.log('Directly updating UI with', matches.length, 'matches');
-  
+
   // Update count
   if (matchCountElement) {
     matchCountElement.textContent = matches.length;
   }
-  
+
   // Update matches list
   if (selectedMatchesList) {
     if (matches.length === 0) {
       selectedMatchesList.innerHTML = '<p class="no-matches">No matches selected</p>';
-      
+
       // Disable buttons that require matches
       if (viewMatchesButton) viewMatchesButton.disabled = true;
       if (clearSelectionsButton) clearSelectionsButton.disabled = true;
@@ -90,10 +90,10 @@ function updateUIWithMatches(matches) {
       if (viewMatchesButton) viewMatchesButton.disabled = false;
       if (clearSelectionsButton) clearSelectionsButton.disabled = isMatchesConfirmed;
       if (confirmMatchesButton) confirmMatchesButton.disabled = false;
-      
+
       // Display matches
       let html = '';
-      
+
       matches.slice(0, 5).forEach((match, index) => {
         try {
           // Safety checks for match data
@@ -102,7 +102,7 @@ function updateUIWithMatches(matches) {
           const selectedTeam = match.selectedTeam || 'Unknown Selection';
           const odds = match.odds || '0.00';
           const status = isMatchesConfirmed ? '<span class="confirmed-badge">Confirmed</span>' : '';
-          
+
           html += `
             <div class="match-item" data-match-id="${match.matchId || index}">
               <div class="match-teams">${team1} vs ${team2} ${status}</div>
@@ -113,17 +113,17 @@ function updateUIWithMatches(matches) {
           console.error('Error processing match in direct UI update:', err, match);
         }
       });
-      
+
       // If there are more than 5 matches, show count of remaining
       if (matches.length > 5) {
         html += `<div class="match-item">+ ${matches.length - 5} more matches...</div>`;
       }
-      
+
       // Safety check for empty HTML
       if (html === '') {
         html = '<p class="no-matches">Error displaying matches data</p>';
       }
-      
+
       // Set the HTML content
       selectedMatchesList.innerHTML = html;
     }
@@ -136,80 +136,116 @@ function updateUIWithMatches(matches) {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     console.log('DOM loaded, initializing popup...');
-    
+
     // First thing - directly load matches from storage
     loadMatchesFromStorage();
-    
+
     // Load stake amount setting
     const result = await chrome.storage.local.get(['stakeAmount', 'confirmedMatches', 'isMatchesConfirmed', 'selectedMatches']);
     console.log('Loaded settings from storage:', result);
-    
+
     if (result.stakeAmount && stakeAmountInput) {
       stakeAmountInput.value = result.stakeAmount;
     }
-    
+
     // Check if the bot is currently running
     const status = await chrome.storage.local.get(['isRunning']);
     if (status.isRunning) {
       isRunning = true;
       updateBotStatus(isRunning);
     }
-    
+
     // Check auto betting status
     checkAutoBettingStatus();
 
     // Listen for match updates
     chrome.runtime.onMessage.addListener(handleMessage);
-    
+
     // Add event listeners for input validation
     if (favoritesCountInput && underdogsCountInput) {
-      favoritesCountInput.addEventListener('input', validateMatchCounts);
-      underdogsCountInput.addEventListener('input', validateMatchCounts);
+      // Use a wrapper function for the async validateMatchCounts
+      const validateMatchCountsWrapper = () => {
+        // Call the non-async version for immediate UI feedback
+        const oldValidateMatchCounts = function() {
+          const favoritesCount = parseInt(favoritesCountInput.value) || 0;
+          const underdogsCount = parseInt(underdogsCountInput.value) || 0;
+          const totalCount = favoritesCount + underdogsCount;
+          const matchCount = selectedMatches.length;
+
+          // Show warning if counts don't match and there are matches selected
+          if (matchCount > 0 && totalCount !== matchCount) {
+            if (matchCountWarning) {
+              matchCountWarning.style.display = 'block';
+              matchCountWarning.textContent = `Total must equal selected matches count (${matchCount})`;
+            }
+            if (confirmMatchesButton) confirmMatchesButton.disabled = true;
+            return false;
+          } else {
+            if (matchCountWarning) matchCountWarning.style.display = 'none';
+            // Only enable the confirm button if we have matches
+            if (confirmMatchesButton) confirmMatchesButton.disabled = matchCount === 0;
+            return true;
+          }
+        };
+
+        // Call the old function for immediate UI feedback
+        oldValidateMatchCounts();
+
+        // Also call the async version to store the values
+        validateMatchCounts().catch(err => console.error('Error in async validateMatchCounts:', err));
+      };
+
+      favoritesCountInput.addEventListener('input', validateMatchCountsWrapper);
+      underdogsCountInput.addEventListener('input', validateMatchCountsWrapper);
     }
 
     // Set up UI event listeners
     if (startStopButton) {
       startStopButton.addEventListener('click', toggleBot);
     }
-    
+
+    // Add event listeners for bet variation buttons if they exist
+    const startBetVariationsButton = document.getElementById('startBetVariationsButton');
+    const stopBetVariationsButton = document.getElementById('stopBetVariationsButton');
+
     if (startBetVariationsButton) {
       startBetVariationsButton.addEventListener('click', startBetVariations);
     }
-    
+
     if (stopBetVariationsButton) {
       stopBetVariationsButton.addEventListener('click', stopBetVariations);
     }
-    
+
     if (startAutoBettingButton) {
       startAutoBettingButton.addEventListener('click', startAutoBetting);
     }
-    
+
     if (terminateAutoBettingButton) {
       terminateAutoBettingButton.addEventListener('click', terminateAutoBetting);
     }
-    
+
     if (settingsButton) {
       settingsButton.addEventListener('click', openSettings);
     }
-    
+
     // Add listeners for match-related buttons
     if (clearSelectionsButton) {
       clearSelectionsButton.addEventListener('click', clearSelections);
     }
-    
+
     if (viewMatchesButton) {
       viewMatchesButton.addEventListener('click', viewMatchDetails);
     }
-    
+
     if (confirmMatchesButton) {
       confirmMatchesButton.addEventListener('click', confirmMatches);
     }
-    
+
     // Add event listener for view bet log button
     if (viewBetLogButton) {
       viewBetLogButton.addEventListener('click', openBetLogPage);
     }
-    
+
     console.log('Popup initialized with UI elements:', {
       startStopButton: !!startStopButton,
       statusText: !!statusText,
@@ -217,7 +253,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       matchCountElement: !!matchCountElement,
       selectedMatches: selectedMatches.length
     });
-    
+
     // Add a reload button for debugging
     const debugReloadButton = document.createElement('button');
     debugReloadButton.textContent = 'Reload Matches';
@@ -332,7 +368,7 @@ function updateStatus() {
 async function loadSelectedMatches() {
   try {
     console.log('Loading selected matches from storage...');
-    
+
     // Check if extension context is valid
     if (!chrome.runtime) {
       console.error('Extension context invalid, cannot load matches');
@@ -341,7 +377,7 @@ async function loadSelectedMatches() {
 
     const result = await chrome.storage.local.get(['selectedMatches']);
     console.log('Loaded matches from storage:', result);
-    
+
     if (result.selectedMatches) {
       selectedMatches = result.selectedMatches;
       console.log(`Loaded ${selectedMatches.length} matches from storage`);
@@ -349,10 +385,10 @@ async function loadSelectedMatches() {
       selectedMatches = [];
       console.log('No matches found in storage');
     }
-    
+
     // Update the UI with the loaded matches
     updateMatchesDisplay(selectedMatches);
-    
+
     return selectedMatches;
   } catch (error) {
     console.error('Error loading selected matches:', error);
@@ -363,44 +399,44 @@ async function loadSelectedMatches() {
 // Update the matches display in the popup
 function updateMatchesDisplay(matches) {
   console.log('Updating matches display with', matches ? matches.length : 0, 'matches');
-  
+
   // Safety check for null or undefined matches
   if (!matches) {
     matches = [];
   }
-  
+
   // Use confirmed matches if they exist and matches are confirmed
   const displayMatches = isMatchesConfirmed ? confirmedMatches : matches;
-  
+
   // Update count
   if (matchCountElement) {
     matchCountElement.textContent = displayMatches.length;
   }
-  
+
   // Update matches list
   if (selectedMatchesList) {
     console.log('Updating selectedMatchesList element');
-    
+
     if (!displayMatches || displayMatches.length === 0) {
       selectedMatchesList.innerHTML = '<p class="no-matches">No matches selected</p>';
-      
+
       // Disable buttons that require matches
       if (viewMatchesButton) viewMatchesButton.disabled = true;
       if (clearSelectionsButton) clearSelectionsButton.disabled = true;
       if (confirmMatchesButton) confirmMatchesButton.disabled = true;
-      
+
       console.log('No matches to display');
     } else {
       // Enable buttons
       if (viewMatchesButton) viewMatchesButton.disabled = false;
       if (clearSelectionsButton) clearSelectionsButton.disabled = isMatchesConfirmed;
       if (confirmMatchesButton) confirmMatchesButton.disabled = false;
-      
+
       console.log('Displaying', displayMatches.length, 'matches');
-      
+
       // Display matches
       let html = '';
-      
+
       displayMatches.slice(0, 5).forEach(match => {
         try {
           // Safety checks for incomplete match data
@@ -409,7 +445,7 @@ function updateMatchesDisplay(matches) {
           const selectedTeam = match.selectedTeam || 'Unknown Selection';
           const odds = match.odds || '0.00';
           const status = isMatchesConfirmed ? '<span class="confirmed-badge">Confirmed</span>' : '';
-          
+
           html += `
             <div class="match-item">
               <div class="match-teams">${team1} vs ${team2} ${status}</div>
@@ -420,16 +456,16 @@ function updateMatchesDisplay(matches) {
           console.error('Error processing match data:', err, match);
         }
       });
-      
+
       // If there are more than 5 matches, show count of remaining
       if (displayMatches.length > 5) {
         html += `<div class="match-item">+ ${displayMatches.length - 5} more matches...</div>`;
       }
-      
+
       if (html === '') {
         html = '<p class="no-matches">Error displaying matches data</p>';
       }
-      
+
       console.log('Generated HTML for matches:', html.substring(0, 100) + '...');
       selectedMatchesList.innerHTML = html;
     }
@@ -446,17 +482,17 @@ async function clearSelections() {
       showNotification('Unconfirm matches before clearing selections.');
       return;
     }
-    
+
     // Clear selected matches
     selectedMatches = [];
     await chrome.storage.local.set({ selectedMatches: [] });
-    
+
     // Update display
     updateMatchesDisplay([]);
-    
+
     // Notify background script to update badge
     chrome.runtime.sendMessage({ action: 'matchesUpdated', matches: [] });
-    
+
     console.log('Selections cleared');
   } catch (error) {
     console.error('Error clearing selections:', error);
@@ -476,26 +512,8 @@ function viewMatchDetails() {
   }
 }
 
-// Validate that favorites + underdogs equals total match count
-function validateMatchCounts() {
-  const favoritesCount = parseInt(favoritesCountInput.value) || 0;
-  const underdogsCount = parseInt(underdogsCountInput.value) || 0;
-  const totalCount = favoritesCount + underdogsCount;
-  const matchCount = selectedMatches.length;
-  
-  // Show warning if counts don't match and there are matches selected
-  if (matchCount > 0 && totalCount !== matchCount) {
-    matchCountWarning.style.display = 'block';
-    matchCountWarning.textContent = `Total must equal selected matches count (${matchCount})`;
-    confirmMatchesBtn.disabled = true;
-    return false;
-  } else {
-    matchCountWarning.style.display = 'none';
-    // Only enable the confirm button if we have matches
-    confirmMatchesBtn.disabled = matchCount === 0;
-    return true;
-  }
-}
+// This function is replaced by the async version below and the wrapper in the event listeners
+// Keeping this comment as a placeholder to avoid confusion
 
 // Check if the current favorite and underdog counts are valid
 function isValidMatchCounts() {
@@ -516,10 +534,8 @@ function openMatchesPage() {
 
     chrome.tabs.create({
       url: chrome.runtime.getURL('pages/selected-matches.html')
-    }, (tab) => {
-      if (chrome.runtime.lastError) {
-        console.error('Error opening matches page:', chrome.runtime.lastError);
-      }
+    }).catch(error => {
+      console.error('Error opening matches page:', error);
     });
   } catch (error) {
     console.error('Error opening matches page:', error);
@@ -534,50 +550,50 @@ async function confirmMatches() {
       // Allow unconfirming matches
       isMatchesConfirmed = false;
       confirmedMatches = [];
-      
+
       // Update button appearance
       confirmMatchesButton.textContent = 'Confirm Matches';
       confirmMatchesButton.classList.remove('confirmed');
-      
+
       // Save confirmed matches status
-      await chrome.storage.local.set({ 
-        isMatchesConfirmed: false, 
-        confirmedMatches: [] 
+      await chrome.storage.local.set({
+        isMatchesConfirmed: false,
+        confirmedMatches: []
       });
-      
+
       console.log('Matches unconfirmed');
       return;
     }
-    
+
     // Get the current selected matches
     const result = await chrome.storage.local.get(['selectedMatches']);
     const currentMatches = result.selectedMatches || [];
-    
+
     if (currentMatches.length === 0) {
       showNotification('No matches selected to confirm.');
       return;
     }
-    
+
     // Confirm the matches
     isMatchesConfirmed = true;
     confirmedMatches = [...currentMatches];
-    
+
     // Update button appearance
     confirmMatchesButton.textContent = 'Matches Confirmed';
     confirmMatchesButton.classList.add('confirmed');
-    
+
     // Save confirmed matches status
-    await chrome.storage.local.set({ 
-      isMatchesConfirmed: true, 
-      confirmedMatches: confirmedMatches 
+    await chrome.storage.local.set({
+      isMatchesConfirmed: true,
+      confirmedMatches: confirmedMatches
     });
-    
+
     // Notify background script about confirmed matches for badge update
-    chrome.runtime.sendMessage({ 
-      action: 'matchesConfirmed', 
-      matches: confirmedMatches 
+    chrome.runtime.sendMessage({
+      action: 'matchesConfirmed',
+      matches: confirmedMatches
     });
-    
+
     console.log('Matches confirmed:', confirmedMatches.length);
   } catch (error) {
     console.error('Error confirming matches:', error);
@@ -646,50 +662,63 @@ async function startAutoBetting() {
   try {
     const confirmation = confirm('WARNING: This will place REAL BETS with REAL MONEY using the current settings. Are you absolutely sure you want to continue?');
     if (!confirmation) return;
-    
+
     // Double confirmation for safety
     const secondConfirmation = confirm('FINAL WARNING: Real money will be used for these bets. Press OK to proceed with placing real bets, or Cancel to abort.');
     if (!secondConfirmation) return;
-    
+
+    // Validate the match counts first
+    const isValid = await validateMatchCounts();
+    if (!isValid) {
+      return; // Stop if validation fails
+    }
+
     // Get stake amount
     let stake = parseFloat(stakeAmountInput.value);
     if (isNaN(stake) || stake <= 0) {
       alert('Please enter a valid stake amount');
       return;
     }
-    
+
     // Get matches to use - prefer confirmed matches if available
     const matchesToUse = confirmedMatches.length > 0 ? confirmedMatches : selectedMatches;
-    
+
     // Check if we have enough matches
     if (matchesToUse.length < 2) {
       alert('Please select at least 2 matches for auto betting');
       return;
     }
-    
+
     // Get favorites and underdogs counts
-    const favoritesCount = parseInt(favoritesCountInput.value) || 1;
-    const underdogsCount = parseInt(underdogsCountInput.value) || 1;
-    
+    // Use parseInt but don't use || operator which would replace 0 with 1
+    const favoritesCount = parseInt(favoritesCountInput.value);
+    const underdogsCount = parseInt(underdogsCountInput.value);
+
+    // Check if the values are valid numbers
+    if (isNaN(favoritesCount) || isNaN(underdogsCount)) {
+      alert('Please enter valid numbers for favorites and underdogs counts');
+      return;
+    }
+
     // Calculate total possible combinations and display it
     const totalCombinations = await calculateAndDisplayTotalCombinations(matchesToUse, favoritesCount, underdogsCount);
-    
+
     // Save settings
-    await chrome.storage.local.set({ 
+    await chrome.storage.local.set({
       stakeAmount: stake,
       favoritesCount,
       underdogsCount
     });
-    
+
     // Update UI immediately to show we're starting
     variationStatus.textContent = `Auto betting in progress... (${totalCombinations} possible combinations)`;
-    
+
     // Show terminate button
     if (terminateAutoBettingButton) {
       startAutoBettingButton.style.display = 'none';
       terminateAutoBettingButton.style.display = 'inline-block';
     }
-    
+
     // Start auto betting - pass the favorites and underdogs counts
     const response = await chrome.runtime.sendMessage({
       action: 'startAutoBetting',
@@ -697,9 +726,9 @@ async function startAutoBetting() {
       favoritesCount: favoritesCount,
       underdogsCount: underdogsCount
     });
-    
+
     console.log('Auto betting response:', response);
-    
+
     if (response && response.status === 'success') {
       console.log('Auto betting started successfully');
       showNotification('Real auto betting started - placing bets with real money');
@@ -707,7 +736,7 @@ async function startAutoBetting() {
     } else {
       console.error('Error starting auto betting:', response ? response.error : 'No response');
       showNotification('Error starting auto betting: ' + (response ? response.error : 'No response'));
-      
+
       // Revert UI changes
       if (terminateAutoBettingButton) {
         terminateAutoBettingButton.style.display = 'none';
@@ -719,7 +748,7 @@ async function startAutoBetting() {
   } catch (error) {
     console.error('Error starting auto betting:', error);
     showNotification('Failed to start auto betting: ' + error.message);
-    
+
     // Revert UI changes
     if (terminateAutoBettingButton) {
       terminateAutoBettingButton.style.display = 'none';
@@ -739,7 +768,7 @@ async function calculateAndDisplayTotalCombinations(matches, favoritesCount, und
       favoritesCount: favoritesCount,
       underdogsCount: underdogsCount
     });
-    
+
     if (response && response.totalCombinations !== undefined) {
       return response.totalCombinations;
     } else {
@@ -759,12 +788,12 @@ async function stopAutoBetting() {
       console.log('Extension context invalid, cannot stop auto betting');
       return;
     }
-    
+
     // Stop auto betting
     const response = await chrome.runtime.sendMessage({
       action: 'stopAutoBetting'
     });
-    
+
     if (response.status === 'success') {
       updateAutoBettingStatus(false);
       console.log('Auto betting stopped:', response.result);
@@ -780,19 +809,19 @@ async function stopAutoBetting() {
 function updateAutoBettingStatus(isActive) {
   try {
     isAutoBetting = isActive;
-    
+
     // Update status display if available
     const autoBettingStatus = document.getElementById('autoBettingStatus');
     if (autoBettingStatus) {
       autoBettingStatus.textContent = isActive ? 'Active' : 'Inactive';
       autoBettingStatus.style.color = isActive ? '#4CAF50' : '#f44336';
     }
-    
+
     // Update buttons
     if (startAutoBettingButton) {
       startAutoBettingButton.disabled = isActive;
     }
-    
+
     // Update other interface elements based on auto betting status
     if (isActive) {
       // Disable other action buttons while auto betting is active
@@ -807,7 +836,7 @@ function updateAutoBettingStatus(isActive) {
         confirmMatchesButton.disabled = false;
       }
     }
-    
+
     console.log('Updated auto betting status UI:', isActive);
   } catch (error) {
     console.error('Error updating auto betting status UI:', error);
@@ -823,15 +852,15 @@ async function checkAutoBettingStatus() {
     const response = await chrome.runtime.sendMessage({
       action: 'getAutoBettingStatus'
     });
-    
+
     if (response.status === 'success') {
       isAutoBetting = response.isAutoBetting;
       maxAutoBets = response.maxAutoBets || 5;
       updateAutoBettingStatus(isAutoBetting);
-      
+
       if (isAutoBetting && response.sessionInfo) {
         updateAutoBettingProgress(
-          response.sessionInfo.completedBets || 0, 
+          response.sessionInfo.completedBets || 0,
           response.sessionInfo.totalBets || maxAutoBets
         );
       }
@@ -845,7 +874,7 @@ async function checkAutoBettingStatus() {
 function handleMessage(message) {
   try {
     if (!message.action) return;
-    
+
     if (message.action === 'matchesUpdated') {
       // Handle updated matches list
       if (message.matches) {
@@ -860,37 +889,37 @@ function handleMessage(message) {
     }
     else if (message.action === 'autoBettingProgress') {
       console.log('Auto betting progress update:', message);
-      
+
       // Update the auto betting progress in the UI
       if (terminateAutoBettingButton) {
         startAutoBettingButton.style.display = 'none';
         terminateAutoBettingButton.style.display = 'inline-block';
       }
-      
+
       // Update status text
       if (variationStatus) {
         variationStatus.textContent = `Auto betting in progress: ${message.current}/${message.total}`;
       }
-      
+
       // Update the current bet display
       showNotification('Real bet placed - preparing next bet');
-      
+
       // Update simulation log with the latest bet details
       if (message.lastBet) {
         let simLogElement = document.getElementById('currentSimulation');
-        
+
         // Create the element if it doesn't exist
         if (!simLogElement) {
           simLogElement = document.createElement('div');
           simLogElement.id = 'currentSimulation';
           simLogElement.className = 'current-simulation';
-          
+
           const container = document.querySelector('.container');
           if (container) {
             container.appendChild(simLogElement);
           }
         }
-        
+
         // Update the simulation log content
         simLogElement.innerHTML = `
           <h3>Current Bet: ${message.current}/${message.total}</h3>
@@ -903,41 +932,41 @@ function handleMessage(message) {
     }
     else if (message.action === 'autoBettingCompleted') {
       console.log('Auto betting completed:', message);
-      
+
       // Update UI to show completed state
       if (terminateAutoBettingButton) {
         terminateAutoBettingButton.style.display = 'none';
         startAutoBettingButton.style.display = 'inline-block';
       }
-      
+
       // Update progress text
       if (variationStatus) {
         variationStatus.textContent = 'Auto betting completed';
       }
-      
+
       // Show notification
       showNotification('Auto betting completed');
-      
+
       // Add betting summary if available
       if (message.sessionInfo && message.sessionInfo.completedBets > 0) {
         // Create a simulation log element if it doesn't exist
         let simLogElement = document.getElementById('simulationLog');
-        
+
         // Create the element if it doesn't exist
         if (!simLogElement) {
           simLogElement = document.createElement('div');
           simLogElement.id = 'simulationLog';
           simLogElement.className = 'simulation-log';
-          
+
           const container = document.querySelector('.container');
           if (container) {
             container.appendChild(simLogElement);
           }
         }
-        
+
         const completedBets = message.sessionInfo.completedBets;
         const favoritePercentage = message.sessionInfo.favoritePercentage.toFixed(1);
-        
+
         // Update the simulation log content
         simLogElement.innerHTML = `
           <h3>Betting Summary</h3>
@@ -946,26 +975,26 @@ function handleMessage(message) {
           <p>Click Start Auto Betting to run another betting session</p>
         `;
       }
-      
+
       // Update auto betting status
       updateAutoBettingStatus(false);
     }
     else if (message.action === 'autoBettingFailed') {
       console.error('Auto betting failed:', message);
-      
+
       // Update UI to show error state
       if (terminateAutoBettingButton) {
         terminateAutoBettingButton.style.display = 'none';
         startAutoBettingButton.style.display = 'inline-block';
       }
-      
+
       // Update auto betting status
       updateAutoBettingStatus(false);
-      
+
       // Show error notification
       const errorMessage = message.error || 'Unknown error';
       showNotification(`Auto betting failed: ${errorMessage}`);
-      
+
       // Update status text
       if (variationStatus) {
         variationStatus.textContent = `Error: ${errorMessage}`;
@@ -990,18 +1019,18 @@ async function toggleBot() {
     console.log('toggleBot function called');
     const response = await chrome.runtime.sendMessage({ action: 'toggleBot' });
     console.log('Toggle response:', response);
-    
+
     if (response && response.status === 'success') {
       // Update UI
       updateBotStatus(response.isRunning);
-      
+
       // Send message to all open tabs about the bot status change
       const tabs = await chrome.tabs.query({});
       for (const tab of tabs) {
         try {
-          chrome.tabs.sendMessage(tab.id, { 
-            action: 'botStatus', 
-            isRunning: response.isRunning 
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'botStatus',
+            isRunning: response.isRunning
           }).catch(err => {
             console.log(`Non-critical error sending message to tab ${tab.id}:`, err);
           });
@@ -1023,12 +1052,12 @@ async function toggleBot() {
 async function updateBotStatus(isRunning = null) {
   try {
     console.log('updateBotStatus called with:', isRunning);
-    
+
     if (isRunning === null) {
       // Get status from background script
       const response = await chrome.runtime.sendMessage({ action: 'getBotStatus' });
       console.log('getBotStatus response:', response);
-      
+
       if (response && response.status === 'success') {
         isRunning = response.isRunning;
       } else {
@@ -1036,12 +1065,12 @@ async function updateBotStatus(isRunning = null) {
         return;
       }
     }
-    
+
     if (startStopButton && statusText) {
       startStopButton.textContent = isRunning ? 'Stop Bot' : 'Start Bot';
       startStopButton.className = isRunning ? 'button stop' : 'button start';
       statusText.textContent = isRunning ? 'Bot is running' : 'Bot is stopped';
-      
+
       console.log('Updated UI with bot status:', isRunning);
     } else {
       console.error('UI elements not found:', { button: !!startStopButton, statusText: !!statusText });
@@ -1055,12 +1084,12 @@ async function updateBotStatus(isRunning = null) {
 async function stopBetVariations() {
   try {
     const response = await chrome.runtime.sendMessage({ action: 'stopBetVariations' });
-    
+
     if (response && response.status === 'success') {
       document.getElementById('startBetVariationsButton').disabled = false;
       document.getElementById('stopBetVariationsButton').disabled = true;
       document.getElementById('variationStatus').textContent = 'Variations stopped';
-      
+
       showNotification('Bet variations stopped');
     } else {
       showNotification(`Error: ${response.error || 'Unknown error'}`);
@@ -1077,7 +1106,7 @@ function showNotification(message, type = 'info') {
     if (!notification) {
       // Try to find or create the notification element if it doesn't exist
       notification = document.getElementById('notification');
-      
+
       if (!notification) {
         notification = document.createElement('div');
         notification.id = 'notification';
@@ -1085,12 +1114,12 @@ function showNotification(message, type = 'info') {
         document.body.appendChild(notification);
       }
     }
-    
+
     // Set message and display
     notification.textContent = message;
     notification.className = `notification ${type}`;
     notification.style.display = 'block';
-    
+
     // Add appropriate styling based on notification type
     if (type === 'error') {
       notification.style.backgroundColor = '#f44336';
@@ -1099,12 +1128,12 @@ function showNotification(message, type = 'info') {
     } else {
       notification.style.backgroundColor = '#2196F3';
     }
-    
+
     // Hide after 3 seconds
     setTimeout(() => {
       if (notification) notification.style.display = 'none';
     }, 3000);
-    
+
     console.log(`Notification (${type}):`, message);
   } catch (error) {
     console.error('Error showing notification:', error);
@@ -1112,45 +1141,72 @@ function showNotification(message, type = 'info') {
 }
 
 // Validate match counts function - used in input event handlers
-function validateMatchCounts() {
+async function validateMatchCounts() {
   if (!favoritesCountInput || !underdogsCountInput) return true;
-  
+
   const favoritesCount = parseInt(favoritesCountInput.value) || 0;
   const underdogsCount = parseInt(underdogsCountInput.value) || 0;
-  
+
   // Simple validation to ensure both inputs have non-negative values
   if (favoritesCount < 0 || underdogsCount < 0) {
     showNotification("Counts cannot be negative");
     return false;
   }
-  
-  // More complex validation can be added here if needed
-  console.log(`Validated counts: Favorites=${favoritesCount}, Underdogs=${underdogsCount}`);
+
+  // Get the number of selected matches
+  const matchCount = selectedMatches.length;
+
+  // Validate that the sum of favorites and underdogs equals the number of matches
+  if (matchCount > 0 && (favoritesCount + underdogsCount) !== matchCount) {
+    showNotification(`Favorites (${favoritesCount}) + Underdogs (${underdogsCount}) must equal total matches (${matchCount})`);
+    return false;
+  }
+
+  // Store the validated counts in storage for other components to use
+  await chrome.storage.local.set({
+    favoritesCount: favoritesCount,
+    underdogsCount: underdogsCount
+  });
+
+  console.log(`Validated and stored counts: Favorites=${favoritesCount}, Underdogs=${underdogsCount}`);
   return true;
 }
 
 // Start bet variations
 async function startBetVariations() {
   try {
+    // Validate the match counts first
+    const isValid = await validateMatchCounts();
+    if (!isValid) {
+      return; // Stop if validation fails
+    }
+
     // Get favorites and underdogs counts
-    const favoritesCount = parseInt(favoritesCountInput.value) || 0;
-    const underdogsCount = parseInt(underdogsCountInput.value) || 0;
-    
+    // Use parseInt but don't use || operator which would replace 0 with 0
+    const favoritesCount = parseInt(favoritesCountInput.value);
+    const underdogsCount = parseInt(underdogsCountInput.value);
+
+    // Check if the values are valid numbers
+    if (isNaN(favoritesCount) || isNaN(underdogsCount)) {
+      showNotification('Please enter valid numbers for favorites and underdogs counts', 'error');
+      return;
+    }
+
     // Get stake amount
     const stake = parseFloat(stakeAmountInput.value) || 0.10;
-    
-    const response = await chrome.runtime.sendMessage({ 
+
+    const response = await chrome.runtime.sendMessage({
       action: 'startBetVariations',
       favoritesCount: favoritesCount,
       underdogsCount: underdogsCount,
       stake: stake
     });
-    
+
     if (response && response.status === 'success') {
       if (startBetVariationsButton) startBetVariationsButton.disabled = true;
       if (stopBetVariationsButton) stopBetVariationsButton.disabled = false;
       if (variationStatus) variationStatus.textContent = 'Variations running...';
-      
+
       showNotification('Bet variations started');
     } else {
       showNotification(`Error: ${response.error || 'Unknown error'}`);
@@ -1177,10 +1233,10 @@ async function terminateAutoBetting() {
           showNotification('Error terminating auto betting');
           return;
         }
-        
+
         console.log('Auto betting terminated response:', response);
         showNotification('Auto betting terminated');
-        
+
         // Update UI
         if (terminateAutoBettingButton) {
           terminateAutoBettingButton.style.display = 'none';
