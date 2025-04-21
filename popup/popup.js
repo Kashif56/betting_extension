@@ -543,6 +543,12 @@ async function confirmMatches() {
         confirmedMatches: []
       });
 
+      // Update the display to show unconfirmed status
+      updateMatchesDisplay(selectedMatches);
+
+      // Show notification
+      showNotification('Matches unconfirmed', 'info');
+
       console.log('Matches unconfirmed');
       return;
     }
@@ -575,6 +581,12 @@ async function confirmMatches() {
       action: 'matchesConfirmed',
       matches: confirmedMatches
     });
+
+    // Update the display to show confirmed status
+    updateMatchesDisplay(confirmedMatches);
+
+    // Show notification
+    showNotification('Matches confirmed successfully', 'success');
 
     console.log('Matches confirmed:', confirmedMatches.length);
   } catch (error) {
@@ -723,7 +735,7 @@ async function startAutoBetting() {
         terminateAutoBettingButton.style.display = 'none';
         startAutoBettingButton.style.display = 'inline-block';
       }
-      variationStatus.textContent = 'Failed to start auto betting';
+      // Status text update removed
       updateAutoBettingStatus(false);
     }
   } catch (error) {
@@ -806,12 +818,10 @@ function updateAutoBettingStatus(isActive) {
     // Update other interface elements based on auto betting status
     if (isActive) {
       // Disable other action buttons while auto betting is active
-      if (startBetVariationsButton) startBetVariationsButton.disabled = true;
       if (startStopButton) startStopButton.disabled = true;
       if (confirmMatchesButton) confirmMatchesButton.disabled = true;
     } else {
       // Re-enable other buttons when auto betting stops
-      if (startBetVariationsButton) startBetVariationsButton.disabled = false;
       if (startStopButton) startStopButton.disabled = isRunning;
       if (confirmMatchesButton && selectedMatches.length > 0) {
         confirmMatchesButton.disabled = false;
@@ -825,7 +835,8 @@ function updateAutoBettingStatus(isActive) {
 }
 
 function updateAutoBettingProgress(current, total) {
-  autoBettingProgress.textContent = `${current}/${total}`;
+  // Progress element removed
+  console.log(`Auto betting progress: ${current}/${total}`);
 }
 
 async function checkAutoBettingStatus() {
@@ -877,10 +888,7 @@ function handleMessage(message) {
         terminateAutoBettingButton.style.display = 'inline-block';
       }
 
-      // Update status text
-      if (variationStatus) {
-        variationStatus.textContent = `Auto betting in progress: ${message.current}/${message.total}`;
-      }
+      // Status text update removed
 
       // Update the current bet display
       showNotification('Real bet placed - preparing next bet');
