@@ -2262,7 +2262,7 @@ async function clickPlaceBets() {
     // Define the threshold for high estimated return
     // TESTING: Using an extremely low threshold for testing purposes
     // const ESTIMATED_RETURN_THRESHOLD = 250000; // $250,000 in production
-    const ESTIMATED_RETURN_THRESHOLD = 0.05; // $0.05 for testing
+    const ESTIMATED_RETURN_THRESHOLD = 250000; // $0.05 for testing
 
     // If the return exceeds the threshold, skip this bet
     if (estimatedReturn !== null && estimatedReturn > ESTIMATED_RETURN_THRESHOLD) {
