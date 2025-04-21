@@ -181,6 +181,15 @@ h2 {
   margin-top: 20px;
   padding-top: 10px;
   border-top: 1px solid #e0e0e0;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.footer button {
+  flex: 1;
+  min-width: 100px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 /* Notification */

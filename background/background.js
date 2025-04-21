@@ -163,6 +163,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.tabs.create({ url: chrome.runtime.getURL('pages/bet-log.html') });
       sendResponse({ status: 'success' });
     }
+    else if (message.action === 'resetExtension') {
+      // Reset the extension
+      resetExtension()
+        .then(() => sendResponse({ status: 'success' }))
+        .catch(error => sendResponse({ status: 'error', error: error.message }));
+      return true; // Keep messaging channel open for async response
+    }
     else if (message.action === 'generateAllCombinations') {
       // Generate and display all possible bet combinations
       const { matches, favoritesCount, underdogsCount } = message;
@@ -789,5 +796,60 @@ async function logBetCombination(matches, stake, variationType, selections, pote
     console.log('Bet combination logged:', logEntry);
   } catch (error) {
     console.error('Error logging bet combination:', error);
+  }
+}
+
+// Reset the extension
+async function resetExtension() {
+  try {
+    console.log('Resetting extension...');
+
+    // Stop any running processes
+    if (botInterval) {
+      clearInterval(botInterval);
+      botInterval = null;
+    }
+
+    if (betVariationInterval) {
+      clearInterval(betVariationInterval);
+      betVariationInterval = null;
+    }
+
+    // Stop auto betting if it's running
+    if (isAutoBetting) {
+      await terminateAutoBetting();
+    }
+
+    // Reset all state variables
+    selectedMatches = [];
+    confirmedMatches = [];
+    previousSelections = [];
+    delay = 1000;
+
+    // Clear badge
+    chrome.action.setBadgeText({ text: '' });
+
+    // Initialize default settings
+    await chrome.storage.local.set({
+      isRunning: false,
+      delay: 1000,
+      selectedMatches: [],
+      confirmedMatches: [],
+      stakeAmount: 10,
+      favoritesCount: 0,
+      underdogsCount: 0,
+      betVariationActive: false,
+      lastVariationIndex: -1,
+      betHistory: [],
+      betCombinationLogs: [],
+      previousSelections: [],
+      previouslyConfirmedMatchIds: []
+    });
+
+    console.log('Extension reset complete');
+    return { status: 'success' };
+  } catch (error) {
+    console.error('Error resetting extension:', error);
+    throw error;
   }
 }

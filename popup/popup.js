@@ -204,17 +204,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       startStopButton.addEventListener('click', toggleBot);
     }
 
-    // Add event listeners for bet variation buttons if they exist
-    const startBetVariationsButton = document.getElementById('startBetVariationsButton');
-    const stopBetVariationsButton = document.getElementById('stopBetVariationsButton');
-
-    if (startBetVariationsButton) {
-      startBetVariationsButton.addEventListener('click', startBetVariations);
-    }
-
-    if (stopBetVariationsButton) {
-      stopBetVariationsButton.addEventListener('click', stopBetVariations);
-    }
+    // Bet variations buttons event listeners removed
 
     if (startAutoBettingButton) {
       startAutoBettingButton.addEventListener('click', startAutoBetting);
@@ -246,6 +236,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       viewBetLogButton.addEventListener('click', openBetLogPage);
     }
 
+    // Add event listener for reset button
+    const resetButton = document.getElementById('resetButton');
+    if (resetButton) {
+      resetButton.addEventListener('click', resetExtension);
+    }
+
     console.log('Popup initialized with UI elements:', {
       startStopButton: !!startStopButton,
       statusText: !!statusText,
@@ -254,21 +250,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       selectedMatches: selectedMatches.length
     });
 
-    // Add a reload button for debugging
-    const debugReloadButton = document.createElement('button');
-    debugReloadButton.textContent = 'Reload Matches';
-    debugReloadButton.style.position = 'absolute';
-    debugReloadButton.style.top = '5px';
-    debugReloadButton.style.right = '5px';
-    debugReloadButton.style.fontSize = '10px';
-    debugReloadButton.style.padding = '2px 5px';
-    debugReloadButton.style.backgroundColor = '#FF9800';
-    debugReloadButton.style.color = 'white';
-    debugReloadButton.style.border = 'none';
-    debugReloadButton.style.borderRadius = '3px';
-    debugReloadButton.style.cursor = 'pointer';
-    debugReloadButton.addEventListener('click', loadMatchesFromStorage);
-    document.body.appendChild(debugReloadButton);
+    // Debug button removed
   } catch (error) {
     console.error('Error loading settings:', error);
   }
@@ -701,7 +683,7 @@ async function startAutoBetting() {
     }
 
     // Calculate total possible combinations and display it
-    const totalCombinations = await calculateAndDisplayTotalCombinations(matchesToUse, favoritesCount, underdogsCount);
+    await calculateAndDisplayTotalCombinations(matchesToUse, favoritesCount, underdogsCount);
 
     // Save settings
     await chrome.storage.local.set({
@@ -711,7 +693,6 @@ async function startAutoBetting() {
     });
 
     // Update UI immediately to show we're starting
-    variationStatus.textContent = `Auto betting in progress... (${totalCombinations} possible combinations)`;
 
     // Show terminate button
     if (terminateAutoBettingButton) {
@@ -939,10 +920,7 @@ function handleMessage(message) {
         startAutoBettingButton.style.display = 'inline-block';
       }
 
-      // Update progress text
-      if (variationStatus) {
-        variationStatus.textContent = 'Auto betting completed';
-      }
+      // Progress text update removed
 
       // Show notification
       showNotification('Auto betting completed');
@@ -995,10 +973,7 @@ function handleMessage(message) {
       const errorMessage = message.error || 'Unknown error';
       showNotification(`Auto betting failed: ${errorMessage}`);
 
-      // Update status text
-      if (variationStatus) {
-        variationStatus.textContent = `Error: ${errorMessage}`;
-      }
+      // Status text update removed
     }
     else if (message.action === 'successfulBet') {
       console.log('Successfully placed bet:', message);
@@ -1080,25 +1055,7 @@ async function updateBotStatus(isRunning = null) {
   }
 }
 
-// Stop bet variations
-async function stopBetVariations() {
-  try {
-    const response = await chrome.runtime.sendMessage({ action: 'stopBetVariations' });
-
-    if (response && response.status === 'success') {
-      document.getElementById('startBetVariationsButton').disabled = false;
-      document.getElementById('stopBetVariationsButton').disabled = true;
-      document.getElementById('variationStatus').textContent = 'Variations stopped';
-
-      showNotification('Bet variations stopped');
-    } else {
-      showNotification(`Error: ${response.error || 'Unknown error'}`);
-    }
-  } catch (error) {
-    console.error('Error stopping bet variations:', error);
-    showNotification(`Error: ${error.message}`);
-  }
-}
+// Stop bet variations function removed
 
 // Show notification
 function showNotification(message, type = 'info') {
@@ -1172,50 +1129,7 @@ async function validateMatchCounts() {
   return true;
 }
 
-// Start bet variations
-async function startBetVariations() {
-  try {
-    // Validate the match counts first
-    const isValid = await validateMatchCounts();
-    if (!isValid) {
-      return; // Stop if validation fails
-    }
-
-    // Get favorites and underdogs counts
-    // Use parseInt but don't use || operator which would replace 0 with 0
-    const favoritesCount = parseInt(favoritesCountInput.value);
-    const underdogsCount = parseInt(underdogsCountInput.value);
-
-    // Check if the values are valid numbers
-    if (isNaN(favoritesCount) || isNaN(underdogsCount)) {
-      showNotification('Please enter valid numbers for favorites and underdogs counts', 'error');
-      return;
-    }
-
-    // Get stake amount
-    const stake = parseFloat(stakeAmountInput.value) || 0.10;
-
-    const response = await chrome.runtime.sendMessage({
-      action: 'startBetVariations',
-      favoritesCount: favoritesCount,
-      underdogsCount: underdogsCount,
-      stake: stake
-    });
-
-    if (response && response.status === 'success') {
-      if (startBetVariationsButton) startBetVariationsButton.disabled = true;
-      if (stopBetVariationsButton) stopBetVariationsButton.disabled = false;
-      if (variationStatus) variationStatus.textContent = 'Variations running...';
-
-      showNotification('Bet variations started');
-    } else {
-      showNotification(`Error: ${response.error || 'Unknown error'}`);
-    }
-  } catch (error) {
-    console.error('Error starting bet variations:', error);
-    showNotification(`Error: ${error.message}`);
-  }
-}
+// Start bet variations function removed
 
 // Open settings page
 function openSettings() {
@@ -1253,4 +1167,53 @@ async function terminateAutoBetting() {
 // Open the bet log page
 function openBetLogPage() {
   chrome.runtime.sendMessage({ action: 'openBetLog' });
+}
+
+// Reset the extension
+async function resetExtension() {
+  try {
+    // Show confirmation dialog
+    const confirmation = confirm('Are you sure you want to reset the extension? This will clear all data and reload the page.');
+    if (!confirmation) return;
+
+    // First, stop any running processes
+    if (isRunning) {
+      await stopBot();
+    }
+
+    if (isAutoBetting) {
+      await terminateAutoBetting();
+    }
+
+    // Send message to background script to reset
+    chrome.runtime.sendMessage({ action: 'resetExtension' }, async () => {
+      // Clear all stored data in chrome.storage.local
+      await chrome.storage.local.clear();
+
+      // Show notification
+      showNotification('Extension reset successfully. Reloading page...', 'success');
+
+      // Reset all state variables
+      selectedMatches = [];
+      confirmedMatches = [];
+      isMatchesConfirmed = false;
+      isAutoBetting = false;
+      isRunning = false;
+
+      // Reload the current page after a short delay
+      setTimeout(() => {
+        // Reload the current tab
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+          if (tabs[0]) {
+            chrome.tabs.reload(tabs[0].id);
+          }
+          // Also reload the popup
+          location.reload();
+        });
+      }, 1500);
+    });
+  } catch (error) {
+    console.error('Error resetting extension:', error);
+    showNotification('Error resetting extension: ' + error.message, 'error');
+  }
 }

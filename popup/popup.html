@@ -9,12 +9,12 @@
 <body>
   <div class="container">
     <h1>Betting Bot</h1>
-    
+
     <div class="status-section">
       <p id="statusText">Bot is stopped</p>
       <button id="startStopButton" class="button start">Start Bot</button>
     </div>
-    
+
     <div class="matches-section">
       <h2>Selected Matches <span id="matchCount">0</span></h2>
       <div id="selectedMatchesList" class="matches-list">
@@ -26,50 +26,45 @@
         <button id="confirmMatchesButton" class="button action highlight">Confirm Matches</button>
       </div>
     </div>
-    
+
     <div class="settings-section">
       <h2>Bet Settings</h2>
-      
+
       <div class="setting-item">
         <label for="stakeAmount">Stake Amount:</label>
         <input type="number" id="stakeAmount" min="0.01" step="0.01" value="0.06">
       </div>
-      
+
       <div class="setting-item">
         <label for="favoritesCount">Favorites Count:</label>
         <input type="number" id="favoritesCount" min="0" step="1" value="0">
       </div>
-      
+
       <div class="setting-item">
         <label for="underdogsCount">Underdogs Count:</label>
         <input type="number" id="underdogsCount" min="0" step="1" value="0">
       </div>
     </div>
-    
-    <div class="action-section">
-      <button id="startBetVariationsButton" class="button action">Start Bet Variations</button>
-      <button id="stopBetVariationsButton" class="button action" disabled>Stop Variations</button>
-      <p id="variationStatus">No variations running</p>
-    </div>
-    
+
+    <!-- Bet variations section removed -->
+
     <div class="action-section">
       <button id="startAutoBettingButton" class="button action highlight danger">Start Real Auto Betting</button>
       <button id="terminateAutoBettingButton" class="button action danger" style="display: none;">Terminate Auto Betting</button>
       <p>Using 60% favorites / 40% underdogs ratio strategy</p>
       <p class="simulation-notice warning">WARNING: This will place REAL bets with real money!</p>
     </div>
-    
+
     <div class="footer">
       <button id="viewBetLogButton" class="button log">View Bet Logs</button>
       <button id="settingsButton" class="button settings">Advanced Settings</button>
+      <button id="resetButton" class="button danger">Reset Extension</button>
     </div>
-    
+
     <div id="notification" class="notification" style="display: none;"></div>
   </div>
-  
+
   <!-- Main popup script -->
   <script src="popup.js"></script>
-  <!-- Include the debug script for development -->
-  <script src="debug-matches.js"></script>
 </body>
 </html>
