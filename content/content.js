@@ -119,6 +119,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
     }
+    // Add message handler for showing toast notifications
+    else if (message.action === 'showToast') {
+      try {
+        showToast(message.message, message.type || 'info', message.duration || 5000);
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('Error showing toast notification:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      return true;
+    }
   } catch (error) {
     console.error('Error handling message in content script:', error);
     // Send an error response so the sender doesn't hang
@@ -128,6 +139,129 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Return true to indicate that we will send a response asynchronously
   return true;
 });
+
+// Create and show a toast notification
+function showToast(message, type = 'info', duration = 5000) {
+  try {
+    console.log(`Toast notification (${type}): ${message}`);
+
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('bot-extension-toast-container');
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.id = 'bot-extension-toast-container';
+      toastContainer.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+      `;
+      document.body.appendChild(toastContainer);
+    }
+
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `bot-extension-toast ${type}`;
+    toast.style.cssText = `
+      min-width: 250px;
+      margin-top: 10px;
+      padding: 15px 20px;
+      border-radius: 4px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      animation: fadeIn 0.3s ease-in-out;
+      transition: all 0.3s ease;
+      opacity: 0;
+      transform: translateX(50px);
+    `;
+
+    // Set background color based on type
+    switch (type) {
+      case 'success':
+        toast.style.backgroundColor = '#4CAF50';
+        toast.style.color = 'white';
+        break;
+      case 'error':
+        toast.style.backgroundColor = '#F44336';
+        toast.style.color = 'white';
+        break;
+      case 'warning':
+        toast.style.backgroundColor = '#FF9800';
+        toast.style.color = 'white';
+        break;
+      default: // info
+        toast.style.backgroundColor = '#2196F3';
+        toast.style.color = 'white';
+    }
+
+    // Add message
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+    toast.appendChild(messageSpan);
+
+    // Add close button
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = `
+      background: none;
+      border: none;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      margin-left: 10px;
+      padding: 0 5px;
+    `;
+    closeBtn.onclick = () => {
+      removeToast(toast);
+    };
+    toast.appendChild(closeBtn);
+
+    // Add to container
+    toastContainer.appendChild(toast);
+
+    // Animate in
+    setTimeout(() => {
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(0)';
+    }, 10);
+
+    // Auto remove after duration
+    setTimeout(() => {
+      removeToast(toast);
+    }, duration);
+
+    return toast;
+  } catch (error) {
+    console.error('Error showing toast notification:', error);
+  }
+}
+
+// Remove a toast notification
+function removeToast(toast) {
+  try {
+    if (!toast) return;
+
+    // Animate out
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(50px)';
+
+    // Remove after animation
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  } catch (error) {
+    console.error('Error removing toast notification:', error);
+  }
+}
 
 // Initialize the content script
 async function init() {
@@ -2132,6 +2266,13 @@ async function clickPlaceBets() {
     // If the return exceeds the threshold, skip this bet
     if (estimatedReturn !== null && estimatedReturn > ESTIMATED_RETURN_THRESHOLD) {
       console.log(`Skipping bet with high estimated return: $${estimatedReturn} (exceeds $${ESTIMATED_RETURN_THRESHOLD.toLocaleString()} limit)`);
+
+      // Show toast notification for skipped bet
+      showToast(
+        `Skipping bet: Estimated return $${estimatedReturn.toLocaleString()} exceeds limit of $${ESTIMATED_RETURN_THRESHOLD.toLocaleString()}`,
+        'warning',
+        8000
+      );
 
       // Notify that we're skipping this bet
       chrome.runtime.sendMessage({

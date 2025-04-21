@@ -329,6 +329,14 @@ async function startAutoBetting(stakeAmount = STAKE_AMOUNT, favoritesCount = 0, 
     console.log(`Selection breakdown - ${selectedFavoritesCount} favorites (${Math.round(selectedFavoritesCount/autoBetSession.alternativeSelections.length*100)}%) and ${selectedUnderdogsCount} underdogs (${Math.round(selectedUnderdogsCount/autoBetSession.alternativeSelections.length*100)}%)`);
     console.log('=== END OF FIRST BET COMBINATION ===\n');
 
+    // Show toast notification that betting is starting
+    await chrome.tabs.sendMessage(activeTab.id, {
+      action: 'showToast',
+      message: `Starting auto betting with ${totalPossibleCombinations} combinations`,
+      type: 'info',
+      duration: 8000
+    });
+
     // Start the auto bet process
     return await processAutoBets(activeTab.id, stakeAmount);
   } catch (error) {
@@ -1270,6 +1278,26 @@ async function processBetLoop(tabId, matches, stakeAmount) {
         }
       });
 
+      // Show toast notification about progress
+      try {
+        // Calculate remaining combinations
+        const remainingCombinations = totalPossibleCombinations - currentAutoBetCount;
+
+        // Show toast with progress information
+        await chrome.tabs.sendMessage(tabId, {
+          action: 'showToast',
+          message: betResult.success ?
+            `Bet ${currentAutoBetCount} of ${totalPossibleCombinations} placed successfully. ${remainingCombinations} combinations remaining.` :
+            betResult.skipped ?
+              `Bet ${currentAutoBetCount} of ${totalPossibleCombinations} skipped (high return). ${remainingCombinations} combinations remaining.` :
+              `Bet ${currentAutoBetCount} of ${totalPossibleCombinations} failed. ${remainingCombinations} combinations remaining.`,
+          type: betResult.success ? 'success' : betResult.skipped ? 'warning' : 'error',
+          duration: 5000
+        });
+      } catch (error) {
+        console.error('Error showing progress toast:', error);
+      }
+
       console.log(`Completed bet ${currentAutoBetCount} of ${totalPossibleCombinations}`);
       console.log('---------------------------------------');
 
@@ -1283,6 +1311,21 @@ async function processBetLoop(tabId, matches, stakeAmount) {
     console.log(`- Total successful bets: ${autoBetSession.completedBets.length}`);
     console.log(`- Total failed bets: ${autoBetSession.failedBets.length}`);
     console.log(`- Original selections: ${autoBetSession.originalSelections.length} matches`);
+
+    // Show toast notification that betting is completed
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab) {
+        await chrome.tabs.sendMessage(activeTab.id, {
+          action: 'showToast',
+          message: `Auto betting completed: ${autoBetSession.completedBets.length} successful, ${autoBetSession.failedBets.length} failed`,
+          type: 'success',
+          duration: 10000
+        });
+      }
+    } catch (error) {
+      console.error('Error showing completion toast:', error);
+    }
 
     // Calculate average stats
     const favoritePercentage = autoBetSession.completedBets.reduce((acc, bet) => {
