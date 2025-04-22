@@ -1884,3 +1884,14 @@ async function resetExtension() {
     showNotification('Error resetting extension: ' + error.message, 'error');
   }
 }
+
+
+
+
+function clearBetSlip(){
+  const betSlipContainer = document.querySelector('[data-testid="betslip-singles-container"]');
+  if (betSlipContainer) {
+    const removeButtons = betSlipContainer.querySelectorAll('[data-testid="remove-item"]');
+    removeButtons.forEach(button => button.click());
+  };
+}

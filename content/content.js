@@ -37,9 +37,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep the message channel open for the async response
     }
     else if (message.action === 'setConfirmedMatches') {
-      // Set matches from confirmed selections
       if (message.matches && message.matches.length > 0) {
-        // Store the confirmed matches for reselection
         chrome.storage.local.set({
           confirmedMatches: message.matches,
           isMatchesConfirmed: true
@@ -2262,7 +2260,7 @@ async function clickPlaceBets() {
     // Define the threshold for high estimated return
     // TESTING: Using an extremely low threshold for testing purposes
     // const ESTIMATED_RETURN_THRESHOLD = 250000; // $250,000 in production
-    const ESTIMATED_RETURN_THRESHOLD = 250000; // $0.05 for testing
+    const ESTIMATED_RETURN_THRESHOLD = 0.05; // $0.05 for testing
 
     // If the return exceeds the threshold, skip this bet
     if (estimatedReturn !== null && estimatedReturn > ESTIMATED_RETURN_THRESHOLD) {
@@ -2275,6 +2273,8 @@ async function clickPlaceBets() {
         8000
       );
 
+      clearBetSlip();
+
       // Notify that we're skipping this bet
       chrome.runtime.sendMessage({
         action: 'betSkipped',
@@ -2282,7 +2282,7 @@ async function clickPlaceBets() {
         estimatedReturn: estimatedReturn
       });
 
-      // Return false to indicate the bet was not placed
+
       return false;
     }
 
@@ -3304,4 +3304,21 @@ async function findMatchesByIds(matchIds) {
     console.error('Error finding matches by IDs:', error);
     throw error;
   }
+}
+
+
+
+/*
+<div data-testid="remove-item" cursor="pointer" class="sc-hKwDye cyA-dgk" style="opacity: 1;" bis_skin_checked="1"><svg id="cross-circle-fill" width="16" height="16" fill="#9196a1" version="1.1"><use xlink:href="/images/ladbrokes/sprites/svg-misc-icon.svg#cross-circle-fill"></use></svg></div>
+*/
+
+
+
+
+function clearBetSlip(){
+  const betSlipContainer = document.querySelector('[data-testid="betslip-singles-container"]');
+  if (betSlipContainer) {
+    const removeButtons = betSlipContainer.querySelectorAll('[data-testid="remove-item"]');
+    removeButtons.forEach(button => button.click());
+  };
 }
