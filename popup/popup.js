@@ -1031,6 +1031,8 @@ async function clearSelections() {
       matchCountElement.textContent = '0';
     }
 
+    clearBetSlip();
+
     console.log('Selections cleared');
   } catch (error) {
     console.error('Error clearing selections:', error);

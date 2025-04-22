@@ -19,6 +19,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     else if (message.action === 'botStatus') {
       isRunning = message.isRunning;
+      console.log(`Bot status updated: ${isRunning ? 'Running' : 'Inactive'}`);
       sendResponse({ status: 'Status updated' });
     }
     else if (message.action === 'getSelectedMatches') {
@@ -275,6 +276,18 @@ async function init() {
     isRunning = result.isRunning || false;
 
     console.log('Bot status:', isRunning ? 'Running' : 'Inactive');
+
+    // Explicitly ask the background script for the current bot status
+    // This ensures we have the most up-to-date status
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getBotStatus' });
+      if (response && response.status === 'success') {
+        isRunning = response.isRunning;
+        console.log('Updated bot status from background script:', isRunning ? 'Running' : 'Inactive');
+      }
+    } catch (err) {
+      console.log('Non-critical error getting bot status from background script:', err);
+    }
 
     // Set up match selection tracking
     setupMatchTracking();
@@ -1043,28 +1056,34 @@ async function handleMatchDeselection(matchId, button) {
 
 // Example of how to perform a bot action
 function performBotAction() {
-  if (!isRunning) {
-    console.log('Bot is not running');
-    return;
-  }
+  // Check storage directly to ensure we have the latest status
+  chrome.storage.local.get(['isRunning'], function(result) {
+    // Update our local variable
+    isRunning = result.isRunning || false;
 
+    if (!isRunning) {
+      console.log('Bot is not running (checked storage)');
+      return;
+    }
 
+    console.log('Bot is running, performing action...');
 
-  // Instead of auto-selecting matches, we'll just monitor for price changes
-  // and other relevant information from the page
+    // Instead of auto-selecting matches, we'll just monitor for price changes
+    // and other relevant information from the page
 
-  // Check for any price changes on the page
-  const priceButtons = document.querySelectorAll('.price-button');
-  priceButtons.forEach(button => {
-    // You could add code here to monitor for price changes
-    // For example, store the current odds and check if they change
+    // Check for any price changes on the page
+    const priceButtons = document.querySelectorAll('.price-button');
+    priceButtons.forEach(button => {
+      // You could add code here to monitor for price changes
+      // For example, store the current odds and check if they change
+    });
+
+    // Optional: Gather stats or other information from the page
+    const matchContainers = document.querySelectorAll('.flex-col.rounded-md');
+
+    // Note: We've removed automatic selection of matches
+    // This was causing unwanted behavior when the bot was running
   });
-
-  // Optional: Gather stats or other information from the page
-  const matchContainers = document.querySelectorAll('.flex-col.rounded-md');
-
-  // Note: We've removed automatic selection of matches
-  // This was causing unwanted behavior when the bot was running
 }
 
 // Helper function to wait for an element to be present in the DOM
@@ -2095,26 +2114,15 @@ async function enterStakeAmount(amount) {
 
 // Get the estimated return value from the bet slip
 function getEstimatedReturn() {
+  /*
+  <span font-size="md" data-testid="betslip-multi-odds-value" class="sc-gsDKAQ mSqqB">@ 452698.71</span>
+  */
   try {
     console.log('Checking estimated return value...');
 
     // Look for the estimated return element in the footer section
     const estimatedReturnSelectors = [
-      // Main selector from the requirement
-      'span[font-size="lg"][color="#beff85"] strong',
-      // Alternative selectors
-      'span[data-testid="estimated-return"]',
-      '[data-testid="estimated-return-container"] span:last-child',
-      '.estimated-return',
-      '.est-return-value',
-      // Additional selectors for better coverage
-      '.betslip-footer .estimated-return',
-      '.betslip-total-return',
-      '.bet-slip-total',
-      '.total-return',
-      '.potential-return',
-      '.potential-payout',
-      '.total-payout'
+      '[data-testid="betslip-multi-odds-value"]',
     ];
 
     let estimatedReturnElement = null;
@@ -2214,7 +2222,8 @@ function getEstimatedReturn() {
     console.log(`Found estimated return text: ${returnText}`);
 
     // Try to extract just the number part using regex
-    const valueMatch = returnText.match(/[\$£€]?\s*([\d,]+\.?\d*)/);
+    // Handle the new format with @ symbol (e.g., "@ 452698.71")
+    const valueMatch = returnText.match(/@?\s*([\d,]+\.?\d*)/);
     let returnValue;
 
     if (valueMatch && valueMatch[1]) {
@@ -2446,7 +2455,7 @@ async function clickPlaceBets() {
     await clickDoneButton();
 
     console.log('Bet appears to be placed, but no confirmation receipt found');
-   
+
 
     return true;
   } catch (error) {

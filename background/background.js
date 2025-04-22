@@ -589,6 +589,9 @@ function startBot(newDelay) {
 
   console.log(`Starting bot with ${delay}ms delay`);
 
+  // Notify all tabs that the bot is now running
+  notifyAllTabsOfBotStatus(true);
+
   // Start the automation loop
   botInterval = setInterval(async () => {
     try {
@@ -614,6 +617,37 @@ function stopBot() {
     clearInterval(botInterval);
     botInterval = null;
     console.log('Bot stopped');
+
+    // Notify all tabs that the bot is now stopped
+    notifyAllTabsOfBotStatus(false);
+  }
+}
+
+// Notify all tabs about the bot status
+async function notifyAllTabsOfBotStatus(isRunning) {
+  try {
+    console.log(`Notifying all tabs that bot is ${isRunning ? 'running' : 'stopped'}`);
+
+    // Get all tabs
+    const tabs = await chrome.tabs.query({});
+
+    // Send message to each tab
+    for (const tab of tabs) {
+      try {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'botStatus',
+          isRunning: isRunning
+        }).catch(err => {
+          // This is expected for tabs that don't have our content script
+          console.log(`Non-critical error sending status to tab ${tab.id}:`, err);
+        });
+      } catch (err) {
+        // This is expected for tabs that don't have our content script
+        console.log(`Non-critical error sending status to tab ${tab.id}:`, err);
+      }
+    }
+  } catch (error) {
+    console.error('Error notifying tabs of bot status:', error);
   }
 }
 
@@ -622,9 +656,19 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url) {
     // Check if the bot is running
     chrome.storage.local.get(['isRunning'], (result) => {
-      if (result.isRunning) {
-        // Notify the content script that the bot is running
-        chrome.tabs.sendMessage(tabId, { action: 'botStatus', isRunning: true });
+      const isRunning = result.isRunning || false;
+      console.log(`Tab ${tabId} updated, notifying of bot status: ${isRunning ? 'Running' : 'Inactive'}`);
+
+      // Always notify the content script of the current bot status (running or not)
+      try {
+        chrome.tabs.sendMessage(tabId, { action: 'botStatus', isRunning: isRunning })
+          .catch(err => {
+            // This is expected for tabs that don't have our content script
+            console.log(`Non-critical error sending status to tab ${tabId}:`, err);
+          });
+      } catch (err) {
+        // This is expected for tabs that don't have our content script
+        console.log(`Non-critical error sending status to tab ${tabId}:`, err);
       }
     });
   }

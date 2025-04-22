@@ -22,6 +22,7 @@
       </div>
       <div class="match-actions">
         <button id="clearSelectionsButton" class="button action">Clear Selections</button>
+        <button id="cleatBetSlip" class="button action">Clear Bet Slip</button>
         <button id="viewMatchesButton" class="button action">View Details</button>
         <button id="confirmMatchesButton" class="button action highlight">Confirm Matches</button>
       </div>
@@ -68,5 +69,19 @@
 
   <!-- Main popup script -->
   <script src="popup.js"></script>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const clearBetSlipButton = document.getElementById('cleatBetSlip');
+      clearBetSlipButton.addEventListener('click', () => {
+        const betSlipContainer = document.querySelector('[data-testid="betslip-singles-container"]');
+        console.log("Bet Slip Container Found Clearing BetSLip - ", betSlipContainer)
+        if (betSlipContainer) {
+          const removeButtons = betSlipContainer.querySelectorAll('[data-testid="remove-item"]');
+          removeButtons.forEach(button => button.click());
+        };
+      });
+    });
+  </script>
 </body>
 </html>
