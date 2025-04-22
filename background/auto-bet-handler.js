@@ -3,7 +3,7 @@
 
 // Configuration constants
 const STAKE_AMOUNT = 0.10; // Default stake amount in USD
-const DELAY_BETWEEN_ATTEMPTS = 2000; // Delay between attempts in ms
+const DELAY_BETWEEN_ATTEMPTS = 500; // Delay between attempts in ms (reduced by 75%)
 const MAX_RETRIES = 3; // Maximum number of retries for operations
 const MAX_AUTO_BETS = 5; // Default number of auto bets if total combinations is not calculated
 const FAVORITES_RATIO = 0.6; // Ratio of favorites to select (60%)
@@ -527,6 +527,36 @@ function groupMatchesByID(matches) {
       odds: match.odds || '2.0', // Default odds if missing
       matchData: match // Store the original match data for reference
     });
+
+    // If we have opponent team info but only one player, add the opponent as well
+    if (matchesById[match.matchId].players.length === 1 && match.opponentTeam) {
+      console.log(`Adding missing opponent ${match.opponentTeam} for match ${match.matchId}`);
+
+      // Create opponent player data
+      const opponentPlayer = {
+        name: match.opponentTeam,
+        isFavorite: !match.isFavorite, // Opposite of the selected player
+        odds: match.otherTeamOdds || '2.0', // Use other team odds if available
+        matchData: {
+          ...match,
+          selectedTeam: match.opponentTeam,
+          opponentTeam: match.selectedTeam,
+          odds: match.otherTeamOdds || '2.0',
+          otherTeamOdds: match.odds || '2.0',
+          isFavorite: !match.isFavorite
+        }
+      };
+
+      // Add the opponent player
+      matchesById[match.matchId].players.push(opponentPlayer);
+    }
+  });
+
+  // Log any matches that still only have one player
+  Object.keys(matchesById).forEach(matchId => {
+    if (matchesById[matchId].players.length < 2) {
+      console.warn(`Match ${matchId} still only has ${matchesById[matchId].players.length} player(s) after processing`);
+    }
   });
 
   return matchesById;
@@ -728,7 +758,7 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
   // We'll use a more efficient approach for large numbers of matches
 
   // If we have a small number of matches, we can generate all combinations
-  if (totalMatches <= 20) { // Arbitrary threshold, adjust as needed
+  if (totalMatches <= 30) { // Arbitrary threshold, adjust as needed
     // Generate all 2^n combinations
     for (let i = 0; i < totalPossibleCombinations && validCombinations.length < maxCombinations; i++) {
       const selectedPlayers = [];
@@ -737,22 +767,28 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
       // For each match, select one player based on the binary representation of i
       for (let j = 0; j < totalMatches; j++) {
         // Use bit j of number i to decide which player to select (0 or 1)
-        const playerIndex = (i >> j) & 1;
+        let actualPlayerIndex = (i >> j) & 1;
 
         // Make sure we don't try to access a player that doesn't exist
         // Some matches might only have one player in the array
-        if (playerIndex >= matchesArray[j].players.length) {
-          console.log(`Warning: Trying to access player at index ${playerIndex} but match ${matchesArray[j].matchId} only has ${matchesArray[j].players.length} players`);
-          // Skip this combination
-          favoriteCount = -1; // This will make the combination invalid
-          break;
+        if (actualPlayerIndex >= matchesArray[j].players.length) {
+          console.log(`Warning: Trying to access player at index ${actualPlayerIndex} but match ${matchesArray[j].matchId} only has ${matchesArray[j].players.length} players`);
+          // If we only have one player, always use that player regardless of the playerIndex
+          if (matchesArray[j].players.length === 1) {
+            console.log(`Using the only available player for match ${matchesArray[j].matchId}`);
+            actualPlayerIndex = 0; // Force to use the only available player
+          } else {
+            // Skip this combination if we have no players
+            favoriteCount = -1; // This will make the combination invalid
+            break;
+          }
         }
 
-        const player = matchesArray[j].players[playerIndex];
+        const player = matchesArray[j].players[actualPlayerIndex];
 
         // Check if player is defined before using it
         if (!player) {
-          console.log(`Warning: Player at index ${playerIndex} is undefined for match ${matchesArray[j].matchId}`);
+          console.log(`Warning: Player at index ${actualPlayerIndex} is undefined for match ${matchesArray[j].matchId}`);
           // Skip this combination
           favoriteCount = -1; // This will make the combination invalid
           break;
@@ -776,7 +812,7 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
           const potentialReturn = calculatePotentialReturn(selectedPlayers, stake);
 
           // Check if potential return exceeds threshold
-          if (potentialReturn <= 650000) {
+          if (potentialReturn <= 250000) {
             // Add to valid combinations
             validCombinations.push({
               players: selectedPlayers,
@@ -829,9 +865,15 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
         if (favoritePlayer) {
           selectedPlayers.push(favoritePlayer);
         } else if (match.players.length > 0) {
-          // If no favorite found (shouldn't happen), use the first player
+          // If no favorite found, use the first player and mark it as a favorite
           console.log(`Warning: No favorite player found for match ${match.matchId}, using first player as fallback`);
-          selectedPlayers.push(match.players[0]);
+          // Create a copy of the player and mark it as a favorite
+          const player = {...match.players[0], isFavorite: true};
+          // Also update the matchData
+          if (player.matchData) {
+            player.matchData = {...player.matchData, isFavorite: true};
+          }
+          selectedPlayers.push(player);
         } else {
           console.log(`Warning: Match ${match.matchId} has no players, skipping this combination`);
           // Skip this combination
@@ -858,9 +900,15 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
         if (underdogPlayer) {
           selectedPlayers.push(underdogPlayer);
         } else if (match.players.length > 0) {
-          // If no underdog found (shouldn't happen), use the first player
+          // If no underdog found, use the first player and mark it as an underdog
           console.log(`Warning: No underdog player found for match ${match.matchId}, using first player as fallback`);
-          selectedPlayers.push(match.players[0]);
+          // Create a copy of the player and mark it as an underdog
+          const player = {...match.players[0], isFavorite: false};
+          // Also update the matchData
+          if (player.matchData) {
+            player.matchData = {...player.matchData, isFavorite: false};
+          }
+          selectedPlayers.push(player);
         } else {
           console.log(`Warning: Match ${match.matchId} has no players, skipping this combination`);
           // Skip this combination
@@ -885,7 +933,7 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
           const potentialReturn = calculatePotentialReturn(selectedPlayers, stake);
 
           // Check if potential return exceeds threshold
-          if (potentialReturn <= 650000) {
+          if (potentialReturn <= 250000) {
             // Add to valid combinations
             validCombinations.push({
               players: selectedPlayers,

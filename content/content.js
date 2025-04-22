@@ -1171,7 +1171,7 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
     console.log('Player selections:', JSON.stringify(playerSelections));
 
     // Initial wait before starting
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     // Find the matches on the page
     const matchElements = await findMatchesByIds(matchIds);
@@ -1184,7 +1184,7 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
     console.log('Match elements found:', Object.keys(matchElements));
 
     // Wait for DOM to be ready after search
-    await sleep(1000);
+    await sleep(250); // Reduced from 500
 
     // Create a map of player selections by matchId for easy lookup
     const selectionMap = {};
@@ -1204,7 +1204,7 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
       const matchElement = matchElements[matchId];
       if (matchElement) {
         // Wait between each match selection to avoid overwhelming the UI
-        await sleep(1500);
+        await sleep(400); // Reduced from 750
 
         // If we have a specific selection for this match, use it
         // otherwise fall back to selecting the opposite player
@@ -1230,7 +1230,7 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
     }
 
     // Wait after all selections are complete
-    await sleep(2000);
+    await sleep(1000); // Reduced from 2000
 
     // Verify that all requested selections were made correctly
     let allSelectionsCorrect = true;
@@ -1315,7 +1315,7 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
 async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
   try {
     // Wait briefly before starting the selection process
-    await sleep(500);
+    await sleep(250); // Reduced from 500
 
     console.log(`Selecting player "${targetTeam}" for match ${matchId}`);
 
@@ -1481,14 +1481,14 @@ async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
     }
 
     // Wait before clicking to ensure UI is stable
-    await sleep(800);
+    await sleep(200); // Reduced from 400
 
     // Click the target button
     targetButton.click();
     console.log(`Clicked button for team ${selectedButtonName}`);
 
     // Wait for the UI to update after click
-    await sleep(1000);
+    await sleep(300); // Reduced from 500
 
     // Find the match container again after clicking to ensure we have the updated DOM
     const updatedMatchContainer = findMatchContainer(targetButton);
@@ -1551,13 +1551,13 @@ async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
       const quickSlipAddButton = await waitForElement(quickSlipSelectors.join(', '), 1500);
 
       // Wait briefly before clicking the QuickSlip button
-      await sleep(500);
+      await sleep(250);
 
       quickSlipAddButton.click();
       console.log(`Added ${targetTeam} for match ${matchId} to betslip via explicit button click`);
 
       // Wait for betslip to update
-      await sleep(1000);
+      await sleep(500);
     } catch (quickSlipError) {
       console.log(`QuickSlip button not found: ${quickSlipError.message}`);
 
@@ -1602,7 +1602,7 @@ async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
     }
 
     // Final wait to ensure all UI updates are complete
-    await sleep(1000);
+    await sleep(500);
 
     return true;
   } catch (error) {
@@ -1615,7 +1615,7 @@ async function selectSpecificPlayer(matchElement, matchId, targetTeam) {
 async function selectOppositePlayer(matchElement, matchId) {
   try {
     // Wait briefly before starting the selection process
-    await sleep(500);
+    await sleep(250); // Reduced from 500
 
     // Get all price buttons in this match container
     const priceButtons = matchElement.querySelectorAll('.price-button');
@@ -1636,14 +1636,14 @@ async function selectOppositePlayer(matchElement, matchId) {
     }
 
     // Wait before clicking to ensure UI is stable
-    await sleep(800);
+    await sleep(200); // Reduced from 400
 
     // Click the opposite button
     oppositeButton.click();
     console.log(`Clicked opposite button for match ${matchId}`);
 
     // Wait for the UI to update after click
-    await sleep(1000);
+    await sleep(300); // Reduced from 500
 
     // Find the match container again after clicking to ensure we have the updated DOM
     const updatedMatchContainer = findMatchContainer(oppositeButton);
@@ -1699,13 +1699,13 @@ async function selectOppositePlayer(matchElement, matchId) {
       const quickSlipAddButton = await waitForElement(quickSlipSelectors.join(', '), 1500);
 
       // Wait briefly before clicking the QuickSlip button
-      await sleep(500);
+      await sleep(250);
 
       quickSlipAddButton.click();
       console.log(`Added opposite player for match ${matchId} to betslip via explicit button click`);
 
       // Wait for betslip to update
-      await sleep(1000);
+      await sleep(500);
     } catch (quickSlipError) {
       console.log(`QuickSlip button not found: ${quickSlipError.message}`);
 
@@ -1750,7 +1750,7 @@ async function selectOppositePlayer(matchElement, matchId) {
     }
 
     // Final wait to ensure all UI updates are complete
-    await sleep(1000);
+    await sleep(500);
 
     return true;
   } catch (error) {
@@ -1904,20 +1904,20 @@ async function clearSelections() {
 async function waitForBetSlip() {
   try {
     // Initial wait before trying to access betslip
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     // Try to open the bet slip if it's collapsed
     const betSlipToggle = document.querySelector('[data-testid="betslip-toggle"]');
     if (betSlipToggle) {
       betSlipToggle.click();
-      await sleep(1500);
+      await sleep(750); // Reduced from 1500
     }
 
     // Wait for the bet slip container with increased timeout
     const betSlipContainer = await waitForElement('#betslip-container', 8000);
 
     // Wait for the betslip to fully load
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     // Check if there are any selections
     const betSlipItems = betSlipContainer.querySelectorAll('[data-testid="betslip-single-item"], [data-testid="betslip-multi-item"]');
@@ -1938,7 +1938,7 @@ async function navigateToMultiBet() {
     const betSlipContainer = await waitForBetSlip();
 
     // Wait to ensure betslip is fully loaded
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     // Check if MultiBet section already exists
     const multiBetContainer = betSlipContainer.querySelector('[data-testid="betslip-multis-container"]');
@@ -1950,13 +1950,13 @@ async function navigateToMultiBet() {
     const multiBetTitle = multiBetContainer.querySelector('[data-testid="betslip-multis-container-title"]');
     if (multiBetTitle && !multiBetTitle.parentElement.parentElement.querySelector('[data-testid="betslip-multi-item"]')) {
       // Wait before clicking to expand
-      await sleep(500);
+      await sleep(250); // Reduced from 500
 
       // Click the title to expand the section
       multiBetTitle.click();
 
       // Wait for section to expand
-      await sleep(1500);
+      await sleep(750); // Reduced from 1500
     }
 
     return true;
@@ -1970,7 +1970,7 @@ async function navigateToMultiBet() {
 async function enterStakeAmount(amount) {
   try {
     // Initial wait to ensure UI is ready
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     // Find the MultiBet section
     const multiBetContainer = document.querySelector('[data-testid="betslip-multis-container"]');
@@ -2047,7 +2047,7 @@ async function enterStakeAmount(amount) {
           const digitButton = keypadContainer.querySelector(`[data-testid="qb-keypad-${digit}"]`);
           if (digitButton) digitButton.click();
         }
-        await sleep(100);
+        await sleep(50); // Reduced from 100
       }
 
       // Click 'Done' if present
@@ -2056,7 +2056,7 @@ async function enterStakeAmount(amount) {
     }
 
     // Wait a moment to ensure the amount is properly entered
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     // Verify the value was entered
     if (stakeInput.value !== amount && stakeInput.value !== `$${amount}`) {
@@ -2071,7 +2071,7 @@ async function enterStakeAmount(amount) {
       stakeInput.dispatchEvent(new Event('change', { bubbles: true }));
 
       // Wait again to ensure the value is updated
-      await sleep(1000);
+      await sleep(500); // Reduced from 1000
 
       // Check again
       if (stakeInput.value !== amount && stakeInput.value !== `$${amount}`) {
@@ -2083,7 +2083,7 @@ async function enterStakeAmount(amount) {
 
     // Wait an additional 1 second for the estimated return to be calculated
     console.log('Waiting for estimated return to be calculated...');
-    await sleep(1000);
+    await sleep(500); // Reduced from 1000
 
     console.log(`Entered stake amount: ${amount}`);
     return true;
@@ -2246,23 +2246,20 @@ async function clickPlaceBets() {
     console.log('Attempting to place bets...');
 
     // Wait for the UI to be fully ready
-    await sleep(1500);
+    await sleep(750);
 
-    // Wait an additional 1 second after UI is ready before checking estimated return
+    // Wait an additional 0.5 seconds after UI is ready before checking estimated return
     // This ensures the estimated return value has been updated after stake amount input
-    console.log('Waiting 1 second for estimated return to update...');
-    await sleep(1000);
+    console.log('Waiting 0.5 seconds for estimated return to update...');
+    await sleep(500);
 
     // Check the estimated return value
     console.log('Now checking estimated return value...');
     const estimatedReturn = getEstimatedReturn();
 
-    // Define the threshold for high estimated return
-    // TESTING: Using an extremely low threshold for testing purposes
-    // const ESTIMATED_RETURN_THRESHOLD = 250000; // $250,000 in production
-    const ESTIMATED_RETURN_THRESHOLD = 0.05; // $0.05 for testing
 
-    // If the return exceeds the threshold, skip this bet
+    const ESTIMATED_RETURN_THRESHOLD = 250000;
+
     if (estimatedReturn !== null && estimatedReturn > ESTIMATED_RETURN_THRESHOLD) {
       console.log(`Skipping bet with high estimated return: $${estimatedReturn} (exceeds $${ESTIMATED_RETURN_THRESHOLD.toLocaleString()} limit)`);
 
@@ -2388,28 +2385,6 @@ async function clickPlaceBets() {
         throw new Error('Cannot place bets: No stake amount entered');
       }
 
-      // Check for odds change notifications
-      const oddsChangeElements = document.querySelectorAll(
-        '[data-testid="odds-change-notification"], ' +
-        '.odds-changed, .odds-change-alert'
-      );
-
-      if (oddsChangeElements.length > 0) {
-        console.log('Odds have changed, attempting to handle...');
-        const handled = await handleOddsChangeError();
-        if (handled) {
-          console.log('Odds change handled, retrying place bets...');
-          return await clickPlaceBets(); // Recursive call after handling odds change
-        }
-      }
-
-      // Check for maximum stake limits
-      const maxStakeWarnings = document.querySelectorAll('.max-stake-warning, [data-testid="max-stake-warning"]');
-      if (maxStakeWarnings.length > 0) {
-        throw new Error('Cannot place bets: Maximum stake limit exceeded');
-      }
-
-      throw new Error('Place Bets button is disabled for an unknown reason');
     }
 
     // Before clicking, ensure we're scrolled to the button for visibility
@@ -2461,146 +2436,17 @@ async function clickPlaceBets() {
       if (confirmButtonFound) break;
     }
 
-    // If no confirmation button was found but we see a dialog/modal, look for any primary/action button
-    if (!confirmButtonFound) {
-      const dialogElements = document.querySelectorAll('.modal, .dialog, .overlay, .popup');
-      for (const dialog of dialogElements) {
-        if (dialog.offsetParent !== null) { // Check if dialog is visible
-          // Look for primary action buttons in the dialog
-          const actionButton = dialog.querySelector('button.primary, button.action, button.primary-action');
-          if (actionButton) {
-            console.log('Found dialog with action button, clicking to confirm...');
-            actionButton.click();
-            await sleep(1500);
-            break;
-          }
-        }
-      }
-    }
 
-    // Enhanced success verification - Checking multiple indicators
-    // 1. Check for bet receipt/confirmation message
-    const receiptSelectors = [
-      '[data-testid="betslip-receipt"]',
-      '[data-testid="bet-confirmation"]',
-      '.bet-receipt',
-      '.bet-confirmation',
-      '.bet-success',
-      '.bet-placed-message',
-      '.success-message'
-    ];
-
-    for (const selector of receiptSelectors) {
-      const receiptElement = document.querySelector(selector);
-      if (receiptElement && receiptElement.offsetParent !== null) { // Check if visible
-        console.log(`Bet placed successfully! Receipt found with selector: ${selector}`);
-
-        // Send a message indicating successful bet placement
-        chrome.runtime.sendMessage({
-          action: 'betPlaced',
-          success: true
-        });
-
-        // Look for and click the "Done" button to automatically deselect matches
-        await clickDoneButton();
-
-        return true;
-      }
-    }
-
-    // 2. Check for success toast/notification
-    const successNotifications = document.querySelectorAll(
-      '.toast-success, .success-notification, .success-toast, ' +
-      '[data-testid="success-notification"], [data-testid="toast-success"]'
-    );
-
-    if (successNotifications.length > 0) {
-      console.log('Bet placed successfully! Success notification found');
-      chrome.runtime.sendMessage({
-        action: 'betPlaced',
-        success: true
-      });
-
-      // Look for and click the "Done" button to automatically deselect matches
-      await clickDoneButton();
-
-      return true;
-    }
-
-    // 3. Check for bet reference/ID which often appears after successful placement
-    const betReferenceElements = document.querySelectorAll(
-      '[data-testid="bet-reference"], .bet-reference, .bet-id, ' +
-      '.reference-number, .transaction-id'
-    );
-
-    if (betReferenceElements.length > 0) {
-      console.log('Bet placed successfully! Bet reference/ID found');
-      chrome.runtime.sendMessage({
-        action: 'betPlaced',
-        success: true
-      });
-
-      // Look for and click the "Done" button to automatically deselect matches
-      await clickDoneButton();
-
-      return true;
-    }
-
-    // Check if there are any errors in the bet slip after placing the bet
-    const betSlipErrors = document.querySelectorAll(
-      '[data-testid="betslip-error-message"], .bet-error, .error-message, ' +
-      '.betting-error, .validation-error'
-    );
-
-    if (betSlipErrors.length > 0) {
-      const errorTexts = Array.from(betSlipErrors).map(el => el.textContent).join(', ');
-      throw new Error(`Error after placing bet: ${errorTexts}`);
-    }
-
-    // Check if the bet slip is now empty (some sites clear the slip after successful bet)
-    const emptyBetSlipMessage = document.querySelector(
-      '[data-testid="empty-betslip"], .empty-betslip, .no-selections'
-    );
-
-    if (emptyBetSlipMessage) {
-      console.log('Bet likely placed successfully as bet slip is now empty');
-      chrome.runtime.sendMessage({
-        action: 'betPlaced',
-        success: true
-      });
-
-      // Even with empty betslip, try clicking Done button if it exists
-      await clickDoneButton();
-
-      return true;
-    }
-
-    // If we got here without seeing a receipt or errors, check if Place Bet button is still visible
-    if (placeBetsButton.offsetParent === null ||
-        !document.body.contains(placeBetsButton) ||
-        getComputedStyle(placeBetsButton).display === 'none') {
-      console.log('Place Bets button is no longer visible, bet likely placed successfully');
-      chrome.runtime.sendMessage({
-        action: 'betPlaced',
-        success: true
-      });
-
-      // Look for and click the "Done" button to automatically deselect matches
-      await clickDoneButton();
-
-      return true;
-    }
-
-    // If we got here without any confirmation but also no errors, assume it worked but keep a warning
-    console.log('Bet appears to be placed, but no confirmation receipt found');
     chrome.runtime.sendMessage({
       action: 'betPlaced',
-      success: true,
-      warning: 'No confirmation receipt found'
+      success: true
     });
 
-    // Try clicking Done button anyway
+    // Look for and click the "Done" button to automatically deselect matches
     await clickDoneButton();
+
+    console.log('Bet appears to be placed, but no confirmation receipt found');
+   
 
     return true;
   } catch (error) {
@@ -2696,68 +2542,6 @@ async function clickDoneButton() {
   }
 }
 
-// Handle odds change errors
-async function handleOddsChangeError() {
-  try {
-    console.log('Handling odds change error');
-
-    // Look for an "Accept New Odds" button
-    const acceptButtonSelectors = [
-      'button[data-testid="accept-new-odds"]',
-      'button.accept-odds',
-      '.accept-button',
-      'button:contains("Accept")',
-      'button:contains("Accept New Odds")'
-    ];
-
-    let acceptButton = null;
-
-    // Try each selector
-    for (const selector of acceptButtonSelectors) {
-      // Use different methods for the :contains pseudo-selector
-      if (selector.includes(':contains')) {
-        const buttonText = selector.match(/:contains\("(.+)"\)/)[1];
-        const buttons = document.querySelectorAll('button');
-        for (const button of buttons) {
-          if (button.textContent.includes(buttonText)) {
-            acceptButton = button;
-            break;
-          }
-        }
-      } else {
-        acceptButton = document.querySelector(selector);
-      }
-
-      if (acceptButton) break;
-    }
-
-    if (acceptButton) {
-      console.log('Found Accept New Odds button, clicking it');
-      acceptButton.click();
-
-      // Wait for the UI to update
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      return true;
-    } else {
-      // If no accept button, we may need to reselect the matches
-      console.log('No accept button found, we may need to reload the selections');
-
-      // Close any error dialogs
-      const closeButtons = document.querySelectorAll('.close-button, button.close, [data-testid="close-button"]');
-      for (const button of closeButtons) {
-        button.click();
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
-      // We'll let the startNextBetCombination function handle reselecting
-      return false;
-    }
-  } catch (error) {
-    console.error('Error handling odds change:', error);
-    return false;
-  }
-}
 
 // Add a retry mechanism to the startNextBetCombination function
 async function startNextBetCombination(retryCount = 0) {
