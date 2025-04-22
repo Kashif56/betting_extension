@@ -627,6 +627,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       startAutoBettingButton.addEventListener('click', startAutoBetting);
     }
 
+
     if (terminateAutoBettingButton) {
       terminateAutoBettingButton.addEventListener('click', resetExtension);
     }

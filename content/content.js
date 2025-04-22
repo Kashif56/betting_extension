@@ -17,6 +17,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       performBotAction();
       sendResponse({ status: 'Action performed' });
     }
+  
     else if (message.action === 'botStatus') {
       isRunning = message.isRunning;
       console.log(`Bot status updated: ${isRunning ? 'Running' : 'Inactive'}`);
