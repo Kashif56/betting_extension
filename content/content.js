@@ -2275,7 +2275,7 @@ async function clickPlaceBets() {
 
       // Show toast notification for skipped bet
       showToast(
-        `Skipping bet: Estimated return $${estimatedReturn.toLocaleString()} exceeds limit of $${ESTIMATED_RETURN_THRESHOLD.toLocaleString()}`,
+        `Skipping bet: Estimated return ${estimatedReturn.toLocaleString()} exceeds limit of ${ESTIMATED_RETURN_THRESHOLD.toLocaleString()}`,
         'warning',
         8000
       );
