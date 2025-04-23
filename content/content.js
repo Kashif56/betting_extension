@@ -2454,6 +2454,7 @@ async function clickPlaceBets() {
 
     // Look for and click the "Done" button to automatically deselect matches
     await clickDoneButton();
+    clearBetSlip();
 
     console.log('Bet appears to be placed, but no confirmation receipt found');
 
