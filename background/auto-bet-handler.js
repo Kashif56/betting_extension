@@ -6,7 +6,7 @@ const STAKE_AMOUNT = 0.10; // Default stake amount in USD
 const DELAY_BETWEEN_ATTEMPTS = 500; // Delay between attempts in ms (reduced by 75%)
 const MAX_RETRIES = 3; // Maximum number of retries for operations
 const MAX_AUTO_BETS = 5; // Default number of auto bets if total combinations is not calculated
-const FAVORITES_RATIO = 0.6; // Ratio of favorites to select (60%)
+const FAVORITES_RATIO = 0.5; // Ratio of favorites to select (50%)
 
 // State variables
 let isAutoBetting = false;
@@ -102,9 +102,10 @@ function calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCo
     // Total number of unique matches
     const totalUniqueMatches = uniqueMatchIds.size;
 
-    // If specific counts are provided, use them
-    // Check if at least one of the counts is specified (could be 0)
-    if (favoritesCount !== undefined || underdogsCount !== undefined) {
+    // If specific counts are provided and not both zero, use them
+    // Check if at least one of the counts is specified (could be 0) and they're not both zero
+    if ((favoritesCount !== undefined || underdogsCount !== undefined) &&
+        !(favoritesCount === 0 && underdogsCount === 0)) {
       // If one count is specified but the other is not, calculate the other
       if (favoritesCount !== undefined && underdogsCount === undefined) {
         underdogsCount = totalUniqueMatches - favoritesCount;
@@ -112,15 +113,20 @@ function calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCo
         favoritesCount = totalUniqueMatches - underdogsCount;
       }
 
-      // The total of favorites and underdogs must equal the number of matches
-      if (favoritesCount + underdogsCount !== totalUniqueMatches) {
-        console.log(`Invalid selection: favoritesCount (${favoritesCount}) + underdogsCount (${underdogsCount}) must equal available matches (${totalUniqueMatches})`);
-        return 0;
+      // No longer require that favorites + underdogs = total matches
+      // Just ensure we don't exceed the total number of matches
+      if (favoritesCount > totalUniqueMatches) {
+        console.log(`Warning: favoritesCount (${favoritesCount}) exceeds available matches (${totalUniqueMatches})`);
+        favoritesCount = totalUniqueMatches;
       }
 
-      // We need to select which matches will use favorites and which will use underdogs
-      // This is a simple combination problem: C(totalUniqueMatches, favoritesCount)
-      // Since once we choose which matches use favorites, the rest must use underdogs
+      if (underdogsCount > totalUniqueMatches) {
+        console.log(`Warning: underdogsCount (${underdogsCount}) exceeds available matches (${totalUniqueMatches})`);
+        underdogsCount = totalUniqueMatches;
+      }
+
+      console.log(`Using counts: ${favoritesCount} favorites and ${underdogsCount} underdogs for ${totalUniqueMatches} matches`);
+
       const totalPossibleCombinations = calculateCombinations(totalUniqueMatches, favoritesCount);
 
       // Log the calculation details
@@ -130,14 +136,13 @@ function calculateTotalPossibleCombinations(matches, favoritesCount, underdogsCo
 
       return totalPossibleCombinations;
     } else {
-      // If no specific counts provided, use the 60/40 rule
-      // Use our more advanced calculation
-      const validCombinations = calculateTotalValidCombinations(totalUniqueMatches);
+      // If no specific counts provided, use 2^n (all possible combinations)
+      const totalPossibleCombinations = Math.pow(2, totalUniqueMatches);
 
-      console.log(`Calculating total possible combinations for ${totalUniqueMatches} unique matches using 60/40 rule:`);
-      console.log(`- Valid combinations: ${validCombinations}`);
+      console.log(`Calculating total possible combinations for ${totalUniqueMatches} unique matches:`);
+      console.log(`- Total possible combinations (2^${totalUniqueMatches}): ${totalPossibleCombinations}`);
 
-      return validCombinations;
+      return totalPossibleCombinations;
     }
   } catch (error) {
     console.error('Error calculating combinations:', error);
@@ -180,8 +185,9 @@ function generateAndDisplayAllCombinations(matches, favoritesCount = 0, underdog
 
   // Calculate total possible combinations
   let totalPossibleCombos;
-  // Check if at least one of the counts is specified (could be 0)
-  if (favoritesCount !== undefined || underdogsCount !== undefined) {
+  // Check if counts are specified and not both zero
+  if ((favoritesCount !== undefined || underdogsCount !== undefined) &&
+      !(favoritesCount === 0 && underdogsCount === 0)) {
     // Use specific favorites/underdogs count
     totalPossibleCombos = calculateTotalPossibleCombinations(
       matches,
@@ -189,17 +195,30 @@ function generateAndDisplayAllCombinations(matches, favoritesCount = 0, underdog
       underdogsCount
     );
   } else {
-    // Use 60/40 rule
+    // Use 2^n (all possible combinations) when no counts are specified or both are zero
     const totalMatches = matches.length;
-    const targetFavorites = Math.round(totalMatches * FAVORITES_RATIO);
-    totalPossibleCombos = binomialCoefficient(totalMatches, targetFavorites);
+    totalPossibleCombos = Math.pow(2, totalMatches);
+    console.log(`Using 2^n formula: 2^${totalMatches} = ${totalPossibleCombos} possible combinations`);
   }
 
   console.log(`Total possible combinations: ${totalPossibleCombos}`);
 
   // Generate all combinations
   console.log(`Using ${previousSelections.length} previous selections to avoid duplicates`);
-  const result = generatePlayerCombinations(matches, STAKE_AMOUNT, previousSelections, Math.min(100, totalPossibleCombos), favoritesCount, underdogsCount);
+
+  // If both counts are 0, treat it as if no counts were specified
+  if (favoritesCount === 0 && underdogsCount === 0) {
+    console.log(`Both favorites and underdogs counts are 0, treating as if no counts were specified`);
+    favoritesCount = undefined;
+    underdogsCount = undefined;
+  }
+
+  // Generate more combinations when no specific counts are provided or both are zero
+  const maxCombos = (favoritesCount === undefined && underdogsCount === undefined) ?
+    Math.min(1000, totalPossibleCombos) : Math.min(100, totalPossibleCombos);
+
+  console.log(`Generating up to ${maxCombos} combinations`);
+  const result = generatePlayerCombinations(matches, STAKE_AMOUNT, previousSelections, maxCombos, favoritesCount, underdogsCount);
 
   console.log(`Generated ${result.combinations.length} combinations out of ${totalPossibleCombos} possible`);
   console.log('\n=== SAMPLE OF GENERATED COMBINATIONS ===');
@@ -288,8 +307,9 @@ async function startAutoBetting(stakeAmount = STAKE_AMOUNT, favoritesCount = 0, 
     autoBetSession.allCombinations = combinationsResult.combinations;
 
     // Calculate total possible combinations
-    // Check if at least one of the counts is specified (could be 0)
-    if (favoritesCount !== undefined || underdogsCount !== undefined) {
+    // Check if counts are specified and not both zero
+    if ((favoritesCount !== undefined || underdogsCount !== undefined) &&
+        !(favoritesCount === 0 && underdogsCount === 0)) {
       // Use our own implementation directly instead of messaging
       totalPossibleCombinations = calculateTotalPossibleCombinations(
         response.matches,
@@ -298,10 +318,17 @@ async function startAutoBetting(stakeAmount = STAKE_AMOUNT, favoritesCount = 0, 
       );
       console.log(`Using user-specified counts: ${favoritesCount} favorites, ${underdogsCount} underdogs - total possible combinations: ${totalPossibleCombinations}`);
     } else {
-      // Use our advanced implementation with 60/40 rule
-      // Use the stats from the combinations result
-      totalPossibleCombinations = combinationsResult.stats.validPossibleCombinations;
-      console.log(`Using advanced combination generator - total possible combinations: ${totalPossibleCombinations}`);
+      // Use 2^n (all possible combinations) when no counts are specified or both are zero
+      const totalMatches = response.matches.filter(match => !match.isLive).length;
+      totalPossibleCombinations = Math.pow(2, totalMatches);
+      console.log(`Using 2^n formula: 2^${totalMatches} = ${totalPossibleCombinations} possible combinations`);
+
+      // If both counts are 0, treat it as if no counts were specified
+      if (favoritesCount === 0 && underdogsCount === 0) {
+        console.log(`Both favorites and underdogs counts are 0, treating as if no counts were specified`);
+        favoritesCount = undefined;
+        underdogsCount = undefined;
+      }
     }
 
     // Ensure we have a reasonable number (at least 1)
@@ -441,35 +468,7 @@ function binomialCoefficient(n, k) {
   return Math.round(result);
 }
 
-/**
- * Calculate the total number of possible combinations that satisfy the 60/40 rule
- * @param {number} totalMatches - Total number of matches
- * @returns {number} - Number of valid combinations
- */
-function calculateTotalValidCombinations(totalMatches) {
-  // For the 60/40 rule, we need to select 60% favorites and 40% underdogs
-  let favoritesToSelect = Math.round(totalMatches * 0.6);
-  let underdogsToSelect = totalMatches - favoritesToSelect;
-
-  // Ensure we have at least one of each type if possible
-  if (favoritesToSelect === totalMatches && totalMatches > 1) {
-    favoritesToSelect = totalMatches - 1;
-    underdogsToSelect = 1;
-  } else if (underdogsToSelect === totalMatches && totalMatches > 1) {
-    underdogsToSelect = totalMatches - 1;
-    favoritesToSelect = 1;
-  }
-
-  // Total possible combinations = 2^n (where n is the number of matches)
-  // Log this for debugging purposes
-  console.log(`Total possible combinations (2^${totalMatches}): ${Math.pow(2, totalMatches)}`);
-
-  // But we only want combinations that have exactly favoritesToSelect favorites
-  // This is the binomial coefficient (n choose k) where n = totalMatches and k = favoritesToSelect
-  const validCombinations = binomialCoefficient(totalMatches, favoritesToSelect);
-
-  return validCombinations;
-}
+// Note: The calculateTotalValidCombinations function has been removed as we now use 2^n for all combinations
 
 /**
  * Restructure matches data to group by match ID
@@ -686,13 +685,14 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
   // Calculate total possible combinations
   const totalMatches = matchesArray.length;
   const totalPossibleCombinations = Math.pow(2, totalMatches);
-  const validPossibleCombinations = calculateTotalValidCombinations(totalMatches);
+
+  // Use the same value for validPossibleCombinations since we're using all combinations
+  const validPossibleCombinations = totalPossibleCombinations;
 
   // Log the calculation for debugging
   console.log(`Generating player combinations for ${totalMatches} matches:`);
   console.log(`- Total possible combinations: 2^${totalMatches} = ${totalPossibleCombinations}`);
-  console.log(`- Valid combinations (60/40 rule): C(${totalMatches},${Math.round(totalMatches * 0.6)}) = ${validPossibleCombinations}`);
-  console.log(`- Percentage of valid combinations: ${(validPossibleCombinations/totalPossibleCombinations*100).toFixed(2)}%`);
+  console.log(`- Using all possible combinations (2^n)`);
 
   // Set to track seen combinations
   const seen = new Set(previousSelections);
@@ -704,8 +704,9 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
   // Check if specific counts were provided in the function parameters
   let targetFavorites, targetUnderdogs;
 
-  // Use the function parameters directly if provided
-  if (favoritesCount !== undefined || underdogsCount !== undefined) {
+  // Use the function parameters directly if provided and not both zero
+  if ((favoritesCount !== undefined || underdogsCount !== undefined) &&
+      !(favoritesCount === 0 && underdogsCount === 0)) {
     // If one count is specified but the other is not, calculate the other
     if (favoritesCount !== undefined && underdogsCount === undefined) {
       targetFavorites = favoritesCount;
@@ -719,39 +720,28 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
       targetUnderdogs = underdogsCount;
     }
 
-    // Validate that the counts add up to the total matches
-    if (targetFavorites + targetUnderdogs !== totalMatches) {
-      console.log(`Warning: favoritesCount (${targetFavorites}) + underdogsCount (${targetUnderdogs}) must equal total matches (${totalMatches}). Adjusting...`);
-      // Adjust the counts to match the total
-      if (targetFavorites > totalMatches) {
-        targetFavorites = totalMatches;
-        targetUnderdogs = 0;
-      } else if (targetUnderdogs > totalMatches) {
-        targetUnderdogs = totalMatches;
-        targetFavorites = 0;
-      } else {
-        // Proportionally adjust both counts
-        const ratio = targetFavorites / (targetFavorites + targetUnderdogs);
-        targetFavorites = Math.round(totalMatches * ratio);
-        targetUnderdogs = totalMatches - targetFavorites;
-      }
+    // Ensure counts don't exceed total matches
+    if (targetFavorites > totalMatches) {
+      console.log(`Warning: favoritesCount (${targetFavorites}) exceeds total matches (${totalMatches}). Adjusting...`);
+      targetFavorites = totalMatches;
     }
+
+    if (targetUnderdogs > totalMatches) {
+      console.log(`Warning: underdogsCount (${targetUnderdogs}) exceeds total matches (${totalMatches}). Adjusting...`);
+      targetUnderdogs = totalMatches;
+    }
+
+    // If both counts are specified, we'll use them as targets
+    // The actual selection logic will handle the distribution
 
     console.log(`Using user-specified counts: ${targetFavorites} favorites and ${targetUnderdogs} underdogs`);
   } else {
-    // If no valid counts were provided, use the default 60/40 ratio
+    // If no valid counts were provided, we'll accept all combinations
+    // But we still need default values for the algorithm
     targetFavorites = Math.round(totalMatches * FAVORITES_RATIO);
     targetUnderdogs = totalMatches - targetFavorites;
-    console.log(`Using default 60/40 ratio: ${targetFavorites} favorites (${Math.round(targetFavorites/totalMatches*100)}%) and ${targetUnderdogs} underdogs (${Math.round(targetUnderdogs/totalMatches*100)}%)`);
-
-    // Ensure we have at least one of each type if possible
-    if (targetFavorites === totalMatches && totalMatches > 1) {
-      targetFavorites = totalMatches - 1;
-      targetUnderdogs = 1;
-    } else if (targetUnderdogs === totalMatches && totalMatches > 1) {
-      targetUnderdogs = totalMatches - 1;
-      targetFavorites = 1;
-    }
+    console.log(`No specific counts provided - will accept all combinations`);
+    console.log(`Default values (not used as filters): ${targetFavorites} favorites and ${targetUnderdogs} underdogs`);
   }
 
   // Generate all possible combinations using binary representation
@@ -802,7 +792,8 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
       }
 
       // Check if this combination satisfies the target favorites count
-      if (favoriteCount === targetFavorites) {
+      // If no specific counts were provided, accept all combinations
+      if ((favoritesCount === undefined && underdogsCount === undefined) || favoriteCount === targetFavorites) {
         // Generate a unique key for this combination
         const combinationKey = getCombinationKey(selectedPlayers);
 
@@ -838,7 +829,10 @@ function generatePlayerCombinations(matches, stake = STAKE_AMOUNT, previousSelec
     // This is a simplified implementation that generates random valid combinations
 
     // We'll try a limited number of random combinations
-    const maxAttempts = Math.min(10000, validPossibleCombinations);
+    // If no specific counts are provided, try more combinations
+    const maxAttempts = (favoritesCount === undefined && underdogsCount === undefined)
+      ? Math.min(50000, validPossibleCombinations)
+      : Math.min(10000, validPossibleCombinations);
 
     for (let attempt = 0; attempt < maxAttempts && validCombinations.length < maxCombinations; attempt++) {
       const selectedPlayers = [];
@@ -1024,21 +1018,35 @@ function generateBalancedPlayerSelections(originalMatches, favoritesCount = 0, u
       console.log(JSON.stringify(originalMatches[0]));
     }
 
-    const result = generatePlayerCombinations(originalMatches, STAKE_AMOUNT, previousSelections, 1, favoritesCount, underdogsCount);
+    // If no specific counts are provided, we want to generate more combinations
+    const maxCombinations = (favoritesCount === undefined && underdogsCount === undefined) ? 10 : 1;
+    const result = generatePlayerCombinations(originalMatches, STAKE_AMOUNT, previousSelections, maxCombinations, favoritesCount, underdogsCount);
 
-    // If we have valid combinations, use the first one
+    // If we have valid combinations, use one of them
     if (result.combinations && result.combinations.length > 0) {
       console.log(`Generated ${result.combinations.length} valid combinations`);
       console.log(`Stats: ${JSON.stringify(result.stats)}`);
 
-      // Extract the player data from the first combination
-      const selectedPlayers = result.combinations[0].players.map(player => player.matchData);
+      // If no specific counts are provided, randomly select a combination
+      let selectedCombination;
+      if (favoritesCount === undefined && underdogsCount === undefined && result.combinations.length > 1) {
+        // Randomly select a combination
+        const randomIndex = Math.floor(Math.random() * result.combinations.length);
+        selectedCombination = result.combinations[randomIndex];
+        console.log(`Randomly selected combination ${randomIndex + 1} of ${result.combinations.length}`);
+      } else {
+        // Use the first combination
+        selectedCombination = result.combinations[0];
+      }
+
+      // Extract the player data from the selected combination
+      const selectedPlayers = selectedCombination.players.map(player => player.matchData);
 
       // Log the selection details
-      const favoritesCount = selectedPlayers.filter(p => p.isFavorite).length;
-      const underdogsCount = selectedPlayers.length - favoritesCount;
+      const actualFavoritesCount = selectedPlayers.filter(p => p.isFavorite).length;
+      const actualUnderdogsCount = selectedPlayers.length - actualFavoritesCount;
 
-      console.log(`Selected ${selectedPlayers.length} players with ${favoritesCount} favorites (${Math.round(favoritesCount / selectedPlayers.length * 100)}%) and ${underdogsCount} underdogs (${Math.round(underdogsCount / selectedPlayers.length * 100)}%)`);
+      console.log(`Selected ${selectedPlayers.length} players with ${actualFavoritesCount} favorites (${Math.round(actualFavoritesCount / selectedPlayers.length * 100)}%) and ${actualUnderdogsCount} underdogs (${Math.round(actualUnderdogsCount / selectedPlayers.length * 100)}%)`);
 
       return selectedPlayers;
     }
@@ -1066,26 +1074,38 @@ function generateBalancedPlayerSelections(originalMatches, favoritesCount = 0, u
 
   // Use user-specified counts if provided, otherwise use the 60/40 ratio
   let favoritesToSelect;
-  // Check if both counts are defined (could be 0) and their sum equals the number of matches
+
+  // Check if specific counts were provided (could be 0) and not both zero
   if (favoritesCount !== undefined && underdogsCount !== undefined &&
-      (favoritesCount + underdogsCount) === shuffledMatchIds.length) {
-    favoritesToSelect = favoritesCount;
-    console.log(`Using user-specified counts: ${favoritesToSelect} favorites and ${shuffledMatchIds.length - favoritesToSelect} underdogs`);
+      !(favoritesCount === 0 && underdogsCount === 0)) {
+    // If user specified both counts, use them directly
+    favoritesToSelect = Math.min(favoritesCount, shuffledMatchIds.length);
+
+    // Make sure we don't exceed the number of available matches
+    if (favoritesToSelect + underdogsCount > shuffledMatchIds.length) {
+      console.log(`Warning: Specified counts (${favoritesToSelect} favorites + ${underdogsCount} underdogs) exceed available matches (${shuffledMatchIds.length})`);
+      // Adjust underdogs to fit within available matches
+      const adjustedUnderdogs = Math.max(0, shuffledMatchIds.length - favoritesToSelect);
+      console.log(`Adjusting underdogs count from ${underdogsCount} to ${adjustedUnderdogs}`);
+    }
+
+    console.log(`Using user-specified counts: ${favoritesToSelect} favorites and remaining will be underdogs`);
   } else {
-    favoritesToSelect = Math.round(shuffledMatchIds.length * FAVORITES_RATIO);
-    console.log(`Using default 60/40 ratio: ${favoritesToSelect} favorites and ${shuffledMatchIds.length - favoritesToSelect} underdogs`);
+    // Use a balanced 50/50 approach instead of 60/40 ratio
+    favoritesToSelect = Math.ceil(shuffledMatchIds.length / 2);
+    console.log(`Using balanced 50/50 approach: ${favoritesToSelect} favorites and ${shuffledMatchIds.length - favoritesToSelect} underdogs`);
   }
 
-  // Select players from each match based on 60/40 ratio
+  // Select players from each match based on the specified ratio
   const selectedPlayers = [];
 
-  // First, select favorites from the first set of matches (60%)
+  // First, select favorites from the first set of matches
   for (let i = 0; i < favoritesToSelect && i < shuffledMatchIds.length; i++) {
     const matchId = shuffledMatchIds[i];
     selectedPlayers.push(matchesMap[matchId].favorite);
   }
 
-  // Then, select underdogs from the remaining matches (40%)
+  // Then, select underdogs from the remaining matches
   for (let i = favoritesToSelect; i < shuffledMatchIds.length; i++) {
     const matchId = shuffledMatchIds[i];
     selectedPlayers.push(matchesMap[matchId].underdog);
@@ -1122,9 +1142,6 @@ async function processAutoBets(tabId, stakeAmount) {
 
 // Process bets in a loop
 async function processBetLoop(tabId, matches, stakeAmount) {
-  // Get all match IDs (for logging purposes)
-  // const matchIds = matches.map(match => match.matchId);
-
   try {
     // Loop until we've placed all bets or reached the total possible combinations
     while (isAutoBetting && currentAutoBetCount < totalPossibleCombinations) {
@@ -1401,7 +1418,16 @@ async function processBetLoop(tabId, matches, stakeAmount) {
       console.log(`Completed bet ${currentAutoBetCount} of ${totalPossibleCombinations}`);
       console.log('---------------------------------------');
 
-      // 6. Delay before next attempt
+      // 6. Clear the bet slip before the next bet
+      console.log('Clearing bet slip before next bet');
+      try {
+        await chrome.tabs.sendMessage(tabId, { action: 'clearBetSlip' });
+        console.log('Bet slip cleared successfully');
+      } catch (error) {
+        console.error('Error clearing bet slip:', error);
+      }
+
+      // 7. Delay before next attempt
       console.log(`Waiting ${DELAY_BETWEEN_ATTEMPTS}ms before next bet`);
       await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_ATTEMPTS));
     }
@@ -1501,6 +1527,18 @@ async function placeBetInBetSlip(tabId, stakeAmount) {
 
     // If we get here, all steps succeeded
     console.log('Successfully placed bet with stake amount:', stakeAmount);
+
+    // Wait a moment for the bet to be fully processed
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Clear the bet slip after successful bet
+    try {
+      await chrome.tabs.sendMessage(tabId, { action: 'clearBetSlip' });
+      console.log('Bet slip cleared after successful bet');
+    } catch (error) {
+      console.error('Error clearing bet slip after successful bet:', error);
+    }
+
     return { success: true };
 
   } catch (error) {

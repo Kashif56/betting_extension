@@ -1782,11 +1782,9 @@ async function validateMatchCounts() {
   // Get the number of selected matches
   const matchCount = selectedMatches.length;
 
-  // Validate that the sum of favorites and underdogs equals the number of matches
-  if (matchCount > 0 && (favoritesCount + underdogsCount) !== matchCount) {
-    showNotification(`Favorites (${favoritesCount}) + Underdogs (${underdogsCount}) must equal total matches (${matchCount})`);
-    return false;
-  }
+  // No longer require that favorites + underdogs = total matches
+  // Just log the values for information
+  console.log(`Match count: ${matchCount}, Favorites: ${favoritesCount}, Underdogs: ${underdogsCount}`);
 
   // Store the validated counts in storage for other components to use
   await chrome.storage.local.set({

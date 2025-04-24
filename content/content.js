@@ -17,7 +17,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       performBotAction();
       sendResponse({ status: 'Action performed' });
     }
-  
+
     else if (message.action === 'botStatus') {
       isRunning = message.isRunning;
       console.log(`Bot status updated: ${isRunning ? 'Running' : 'Inactive'}`);
@@ -103,6 +103,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       clickPlaceBets()
         .then(() => sendResponse({ success: true }))
         .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
+    else if (message.action === 'clearBetSlip') {
+      try {
+        clearBetSlip();
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('Error clearing bet slip:', error);
+        sendResponse({ success: false, error: error.message });
+      }
       return true;
     }
     // New message handler for starting the next bet combination
@@ -1189,7 +1199,7 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
     console.log(`Reselecting ${matchIds.length} matches with specific players`);
     console.log('Match IDs to reselect:', matchIds);
     console.log('Player selections:', JSON.stringify(playerSelections));
-
+    clearBetSlip()
     // Initial wait before starting
     await sleep(500); // Reduced from 1000
 
@@ -1200,22 +1210,14 @@ async function handleMatchReselection(matchIds, playerSelections = []) {
       throw new Error('No match elements found for the provided IDs');
     }
 
-    console.log(`Found ${Object.keys(matchElements).length} match elements on the page`);
-    console.log('Match elements found:', Object.keys(matchElements));
-
-    // Wait for DOM to be ready after search
     await sleep(250); // Reduced from 500
 
-    // Create a map of player selections by matchId for easy lookup
+
     const selectionMap = {};
     if (playerSelections && playerSelections.length > 0) {
       playerSelections.forEach(selection => {
         selectionMap[selection.matchId] = selection.selectedTeam;
       });
-      console.log('Using provided player selections map:', selectionMap);
-
-      // Log the current state of selectedMatches before reselection
-      console.log('Current selectedMatches array before reselection:', JSON.stringify(selectedMatches));
     }
 
     // Select the specified player for each match with a delay between selections
@@ -2452,18 +2454,11 @@ async function clickPlaceBets() {
       success: true
     });
 
-    // Look for and click the "Done" button to automatically deselect matches
     await clickDoneButton();
     clearBetSlip();
 
-    console.log('Bet appears to be placed, but no confirmation receipt found');
-
-
     return true;
   } catch (error) {
-    console.error('Error placing bets:', error);
-
-    // Notify about the bet placement failure
     chrome.runtime.sendMessage({
       action: 'betPlaced',
       success: false,
@@ -2474,7 +2469,6 @@ async function clickPlaceBets() {
   }
 }
 
-// Function to click the "Done" button after successful bet placement
 async function clickDoneButton() {
   try {
     console.log('Looking for Done button to click...');
